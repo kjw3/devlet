@@ -1,0 +1,151 @@
+import type { AgentState } from "@devlet/shared";
+
+export const MOCK_AGENTS: AgentState[] = [
+  {
+    config: {
+      id: "agent-7f3a",
+      name: "PR Reviewer",
+      type: "claude-code",
+      role: "Senior code reviewer specializing in TypeScript",
+      mission: {
+        description: "Review all open PRs in devlet repo, leave comments",
+        steps: [
+          { action: "clone_repo", params: { repo: "kjw3/devlet" } },
+          { action: "review_prs", params: { labels: ["needs-review"] } },
+        ],
+        onComplete: "idle",
+      },
+      platform: { type: "docker" },
+      resources: { cpus: 2, memoryMb: 4096 },
+      env: {},
+      persistent: true,
+      createdAt: "2026-04-11T08:00:00Z",
+      lastActiveAt: "2026-04-11T10:30:00Z",
+    },
+    status: "running",
+    platformRef: "container:abc123def456",
+    missionProgress: {
+      currentStep: 1,
+      completed: [0],
+      startedAt: "2026-04-11T10:00:00Z",
+    },
+    logs: [
+      "[10:00:01] Agent bootstrapped successfully",
+      "[10:00:05] Cloned repo kjw3/devlet",
+      "[10:02:11] Found 3 PRs with label needs-review",
+      "[10:15:44] Reviewed PR #42 — left 6 comments",
+    ],
+  },
+  {
+    config: {
+      id: "agent-b2d9",
+      name: "Backend Builder",
+      type: "codex",
+      role: "Backend engineer — implement tRPC resolvers",
+      mission: {
+        description: "Implement Docker lifecycle tRPC procedures",
+        steps: [
+          { action: "clone_repo", params: { repo: "kjw3/devlet" } },
+          { action: "run_command", params: { cmd: "pnpm install" } },
+          { action: "run_command", params: { cmd: "implement docker procedures" } },
+        ],
+        onComplete: "report",
+        timeout: 3600,
+      },
+      platform: { type: "docker" },
+      resources: { cpus: 4, memoryMb: 8192 },
+      env: { DOCKER_HOST: "unix:///var/run/docker.sock" },
+      persistent: false,
+      createdAt: "2026-04-11T09:00:00Z",
+      lastActiveAt: "2026-04-11T11:00:00Z",
+    },
+    status: "bootstrapping",
+    platformRef: "container:def456abc789",
+    missionProgress: {
+      currentStep: 1,
+      completed: [0],
+      startedAt: "2026-04-11T11:00:00Z",
+    },
+    logs: [
+      "[11:00:00] Provisioning container...",
+      "[11:00:08] Container started",
+      "[11:00:12] Running bootstrap script",
+    ],
+  },
+  {
+    config: {
+      id: "agent-c5e1",
+      name: "Test Runner",
+      type: "hermes",
+      role: "CI automation — run test suite on schedule",
+      mission: {
+        description: "Run full test suite and report results",
+        steps: [
+          { action: "run_tests", params: { suite: "all" } },
+          { action: "notify", params: { channel: "slack" } },
+        ],
+        onComplete: "terminate",
+      },
+      platform: { type: "portainer", endpointId: 1, stackName: "devlet-ci" },
+      resources: { cpus: 1, memoryMb: 2048 },
+      env: {},
+      persistent: false,
+      createdAt: "2026-04-10T22:00:00Z",
+      lastActiveAt: "2026-04-10T22:45:00Z",
+    },
+    status: "terminated",
+    platformRef: "container:terminated-xyz",
+    missionProgress: {
+      currentStep: 2,
+      completed: [0, 1],
+      startedAt: "2026-04-10T22:00:00Z",
+      completedAt: "2026-04-10T22:45:00Z",
+    },
+    logs: [
+      "[22:00:00] Agent started",
+      "[22:05:00] Running test suite",
+      "[22:42:00] 847 tests passed, 0 failed",
+      "[22:44:00] Notification sent to Slack",
+      "[22:45:00] Mission complete — terminating",
+    ],
+  },
+  {
+    config: {
+      id: "agent-a1f7",
+      name: "Data Ingest",
+      type: "nemoclaw",
+      role: "NLP pipeline — process inbound data streams",
+      mission: {
+        description: "Process and embed incoming document batch",
+        steps: [
+          { action: "run_command", params: { cmd: "fetch documents" } },
+          { action: "run_command", params: { cmd: "embed and store" } },
+        ],
+        onComplete: "idle",
+      },
+      platform: {
+        type: "proxmox",
+        node: "pve-01",
+        vmType: "lxc",
+      },
+      resources: { cpus: 8, memoryMb: 16384 },
+      env: { CUDA_VISIBLE_DEVICES: "0" },
+      persistent: true,
+      createdAt: "2026-04-09T14:00:00Z",
+      lastActiveAt: "2026-04-11T06:00:00Z",
+    },
+    status: "error",
+    platformRef: "lxc:101",
+    missionProgress: {
+      currentStep: 1,
+      completed: [0],
+      startedAt: "2026-04-11T06:00:00Z",
+    },
+    logs: [
+      "[06:00:00] Agent woke from idle",
+      "[06:00:05] Fetched 1,240 documents",
+      "[06:15:33] ERROR: CUDA device unavailable — out of memory",
+    ],
+    error: "CUDA OOM on device 0 — reduce batch size or free GPU memory",
+  },
+];
