@@ -16,6 +16,80 @@ function proxyUrl(endpointId: number, path: string) {
   return `${appConfig.portainer.url}/api/endpoints/${endpointId}/docker${path}`;
 }
 
+type PortainerContainerSummary = {
+  Id: string;
+  Names?: string[];
+  Ports?: Array<{ PublicPort?: number }>;
+};
+
+async function listPortainerContainers(endpointId: number): Promise<PortainerContainerSummary[]> {
+  const res = await fetch(
+    `${proxyUrl(endpointId, "/containers/json")}?all=1`,
+    { headers: headers() }
+  );
+  if (!res.ok) {
+    throw new Error(`Portainer container list (endpoint ${endpointId}) failed: HTTP ${res.status}`);
+  }
+  return await res.json() as PortainerContainerSummary[];
+}
+
+async function findPortainerContainerIdByName(
+  endpointId: number,
+  name: string
+): Promise<string | null> {
+  const containers = await listPortainerContainers(endpointId);
+  const match = containers.find((container) => (container.Names ?? []).includes(`/${name}`));
+  return match?.Id ?? null;
+}
+
+async function inspectPortainerContainerError(
+  endpointId: number,
+  containerId: string
+): Promise<string | null> {
+  const res = await fetch(
+    proxyUrl(endpointId, `/containers/${containerId}/json`),
+    { headers: headers() }
+  );
+  if (!res.ok) return null;
+  const data = await res.json() as { State?: { Error?: string } };
+  return data.State?.Error?.trim() || null;
+}
+
+async function allocateFreePortainerEndpointPort(
+  endpointId: number,
+  start: number,
+  end: number
+): Promise<number> {
+  const containers = await listPortainerContainers(endpointId);
+  const usedPorts = new Set<number>();
+
+  for (const container of containers) {
+    for (const port of container.Ports ?? []) {
+      if (typeof port.PublicPort === "number") {
+        usedPorts.add(port.PublicPort);
+      }
+    }
+  }
+
+  for (let port = start; port <= end; port++) {
+    if (!usedPorts.has(port)) return port;
+  }
+
+  throw new Error(`No free endpoint port available in range ${start}-${end} for Portainer endpoint ${endpointId}`);
+}
+
+export async function allocateFreePortainerTerminalPort(endpointId: number): Promise<number> {
+  return allocateFreePortainerEndpointPort(endpointId, 7681, 8681);
+}
+
+export async function allocateFreePortainerOpenClawPort(endpointId: number): Promise<number> {
+  return allocateFreePortainerEndpointPort(endpointId, 18789, 19789);
+}
+
+export async function allocateFreePortainerMoltisPort(endpointId: number): Promise<number> {
+  return allocateFreePortainerEndpointPort(endpointId, 13131, 14131);
+}
+
 /** Pull image via Portainer's Docker proxy — consumes the streaming progress response. */
 async function pullImage(endpointId: number, image: string): Promise<void> {
   const res = await fetch(
@@ -39,8 +113,14 @@ export async function createPortainerContainer(
   endpointId: number
 ): Promise<string> {
   const image = AGENT_IMAGE[agentConfig.type];
+  const containerName = `devlet-${agentConfig.id}`;
 
   await pullImage(endpointId, image);
+
+  const existingContainerId = await findPortainerContainerIdByName(endpointId, containerName);
+  if (existingContainerId) {
+    await removePortainerContainer(endpointId, existingContainerId);
+  }
 
   const ExposedPorts: Record<string, Record<string, never>> = {};
   const PortBindings: Record<string, Array<{ HostIp: string; HostPort: string }>> = {};
@@ -64,7 +144,7 @@ export async function createPortainerContainer(
   }
 
   const createRes = await fetch(
-    `${proxyUrl(endpointId, "/containers/create")}?name=devlet-${agentConfig.id}`,
+    `${proxyUrl(endpointId, "/containers/create")}?name=${containerName}`,
     {
       method: "POST",
       headers: headers(),
@@ -103,8 +183,15 @@ export async function createPortainerContainer(
 
   // 304 = already started, which is fine
   if (!startRes.ok && startRes.status !== 304) {
+    const [detail, startBody] = await Promise.all([
+      inspectPortainerContainerError(endpointId, containerId),
+      startRes.text(),
+    ]);
+    await removePortainerContainer(endpointId, containerId);
     throw new Error(
-      `Portainer container start (endpoint ${endpointId}) failed: HTTP ${startRes.status}`
+      `Portainer container start (endpoint ${endpointId}) failed: HTTP ${startRes.status}${
+        detail ? ` — ${detail}` : startBody ? ` — ${startBody}` : ""
+      }`
     );
   }
 
@@ -138,6 +225,15 @@ export async function removePortainerContainer(
   }
 }
 
+export async function removePortainerContainerByName(
+  endpointId: number,
+  name: string
+): Promise<void> {
+  const containerId = await findPortainerContainerIdByName(endpointId, name);
+  if (!containerId) return;
+  await removePortainerContainer(endpointId, containerId);
+}
+
 export async function getPortainerContainerRunning(
   endpointId: number,
   containerId: string
@@ -146,7 +242,8 @@ export async function getPortainerContainerRunning(
     proxyUrl(endpointId, `/containers/${containerId}/json`),
     { headers: headers() }
   );
-  if (!res.ok) return null; // container not found or endpoint unreachable
+  if (res.status === 404) return false; // container gone
+  if (!res.ok) return null; // endpoint unreachable or other transient error
   const data = await res.json() as { State?: { Running?: boolean } };
   return data.State?.Running ?? false;
 }

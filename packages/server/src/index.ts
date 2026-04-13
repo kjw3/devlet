@@ -4,6 +4,7 @@ import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "./routers/index.js";
 import { getAgentRunning } from "./platforms/dispatch.js";
+import { probePortainer } from "./platforms/portainer.js";
 import { listAgentStates, saveAgentState } from "./agents/state.js";
 
 const server = Fastify();
@@ -83,6 +84,7 @@ console.log("Devlet server listening on http://localhost:3001");
 async function syncAgentStatuses(): Promise<void> {
   try {
     const states = await listAgentStates();
+    const portainerStatus = await probePortainer().catch(() => null);
     await Promise.all(
       states
         .filter((s) => s.status === "running")
@@ -93,6 +95,21 @@ async function syncAgentStatuses(): Promise<void> {
               state.status = "terminated";
               state.logs.push("[devlet] container exited — marked terminated");
               await saveAgentState(state);
+              return;
+            }
+
+            if (running === null && state.config.platform.type === "portainer") {
+              const platform = state.config.platform;
+              const endpoint = portainerStatus?.connected
+                ? portainerStatus.endpoints.find((item) => item.id === platform.endpointId)
+                : null;
+
+              if (!portainerStatus?.connected || !endpoint || endpoint.status !== 1) {
+                state.status = "error";
+                state.error = `Portainer endpoint ${platform.endpointId} is offline or unreachable`;
+                state.logs.push("[devlet] Portainer endpoint offline — marked error");
+                await saveAgentState(state);
+              }
             }
           } catch {
             // ignore transient errors — don't update state on polling failure

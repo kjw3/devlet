@@ -21,6 +21,12 @@ import {
 import { randomUUID, timingSafeEqual } from "crypto";
 import { z } from "zod";
 import { listImages, probeDocker, allocateFreeOpenClawPort, allocateFreeTerminalPort, allocateFreeMoltisPort } from "../platforms/docker.js";
+import {
+  allocateFreePortainerMoltisPort,
+  allocateFreePortainerOpenClawPort,
+  allocateFreePortainerTerminalPort,
+  removePortainerContainerByName,
+} from "../platforms/portainer-deploy.js";
 import { probePortainer } from "../platforms/portainer.js";
 import { probeProxmox } from "../platforms/proxmox.js";
 import { provisionAgent, stopAgent, removeAgent, getAgentLogs } from "../platforms/dispatch.js";
@@ -260,6 +266,44 @@ function normalizeMission(mission: {
   };
 }
 
+async function ensureAgentAccessPorts(config: AgentConfig): Promise<void> {
+  if (config.platform.type === "portainer") {
+    if (!config.env["DEVLET_TERMINAL_PORT"]) {
+      config.env["DEVLET_TERMINAL_PORT"] = String(
+        await allocateFreePortainerTerminalPort(config.platform.endpointId)
+      );
+    }
+    if (config.type === "openclaw" && !config.env["OPENCLAW_HOST_PORT"]) {
+      config.env["OPENCLAW_HOST_PORT"] = String(
+        await allocateFreePortainerOpenClawPort(config.platform.endpointId)
+      );
+    }
+    if (config.type === "moltis" && !config.env["MOLTIS_HOST_PORT"]) {
+      config.env["MOLTIS_HOST_PORT"] = String(
+        await allocateFreePortainerMoltisPort(config.platform.endpointId)
+      );
+    }
+    return;
+  }
+
+  if (!config.env["DEVLET_TERMINAL_PORT"]) {
+    config.env["DEVLET_TERMINAL_PORT"] = String(await allocateFreeTerminalPort());
+  }
+  if (config.type === "openclaw" && !config.env["OPENCLAW_HOST_PORT"]) {
+    config.env["OPENCLAW_HOST_PORT"] = String(await allocateFreeOpenClawPort());
+  }
+  if (config.type === "moltis" && !config.env["MOLTIS_HOST_PORT"]) {
+    config.env["MOLTIS_HOST_PORT"] = String(await allocateFreeMoltisPort());
+  }
+}
+
+async function refreshAgentAccessPorts(config: AgentConfig): Promise<void> {
+  delete config.env["DEVLET_TERMINAL_PORT"];
+  if (config.type === "openclaw") delete config.env["OPENCLAW_HOST_PORT"];
+  if (config.type === "moltis") delete config.env["MOLTIS_HOST_PORT"];
+  await ensureAgentAccessPorts(config);
+}
+
 export const appRouter = t.router({
   agents: t.router({
     list: authProcedure.query(async () => Promise.all((await listAgentStates()).map(sanitizeAgentState))),
@@ -356,31 +400,13 @@ export const appRouter = t.router({
 
         const agentEnv: Record<string, string> = { ...input.env };
 
-        // Pre-generate web terminal credentials for all agent types.
-        if (!agentEnv["DEVLET_TERMINAL_PORT"]) {
-          const port = await allocateFreeTerminalPort();
-          agentEnv["DEVLET_TERMINAL_PORT"] = String(port);
-        }
         if (!agentEnv["DEVLET_TERMINAL_TOKEN"]) {
           agentEnv["DEVLET_TERMINAL_TOKEN"] = randomUUID();
         }
 
-        // OpenClaw: pre-generate gateway auth token and Control UI host port.
         if (input.type === "openclaw") {
           if (!agentEnv["OPENCLAW_GATEWAY_TOKEN"]) {
             agentEnv["OPENCLAW_GATEWAY_TOKEN"] = randomUUID();
-          }
-          if (!agentEnv["OPENCLAW_HOST_PORT"]) {
-            const port = await allocateFreeOpenClawPort();
-            agentEnv["OPENCLAW_HOST_PORT"] = String(port);
-          }
-        }
-
-        // Moltis: allocate host port.
-        if (input.type === "moltis") {
-          if (!agentEnv["MOLTIS_HOST_PORT"]) {
-            const port = await allocateFreeMoltisPort();
-            agentEnv["MOLTIS_HOST_PORT"] = String(port);
           }
         }
 
@@ -398,6 +424,7 @@ export const appRouter = t.router({
           createdAt: now,
           lastActiveAt: now,
         };
+        await ensureAgentAccessPorts(config);
 
         const state: AgentState = {
           config,
@@ -456,10 +483,20 @@ export const appRouter = t.router({
     restart: authProcedure.input(z.string()).mutation(async ({ input }) => {
       const state = await loadAgentState(input);
       await stopAgent(state.platformRef);
+      await removeAgent(state.platformRef);
+      if (state.config.platform.type === "portainer") {
+        await removePortainerContainerByName(
+          state.config.platform.endpointId,
+          `devlet-${state.config.id}`
+        );
+      }
+      await refreshAgentAccessPorts(state.config);
       const platformRef = await provisionAgent(state.config);
       state.platformRef = platformRef;
       state.status = "running";
+      delete state.error;
       state.config.lastActiveAt = new Date().toISOString();
+      state.logs.push("Restart requested — reprovisioning agent");
       await saveAgentState(state);
       return sanitizeAgentState(state);
     }),
