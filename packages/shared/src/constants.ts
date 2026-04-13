@@ -13,6 +13,15 @@ export const AGENT_TYPES: AgentType[] = [
   "nemoclaw",
 ];
 
+/** Coding agents suitable for single-task / ephemeral workloads (Docker or Portainer only). */
+export const CODING_AGENT_TYPES: AgentType[] = [
+  "claude-code",
+  "codex",
+  "opencode",
+  "pi",
+  "gemini",
+];
+
 export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
   "claude-code": "Claude Code",
   codex:         "Codex",

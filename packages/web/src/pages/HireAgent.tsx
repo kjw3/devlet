@@ -1,11 +1,11 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { AgentType, PlatformTarget } from "@devlet/shared";
+import type { AgentType, PlatformTarget, ProxmoxStatus } from "@devlet/shared";
 import {
   AGENT_TYPES,
+  CODING_AGENT_TYPES,
   AGENT_TYPE_LABELS,
   AGENT_TYPE_DESCRIPTIONS,
-  DEFAULT_RESOURCE_LIMITS,
   AGENT_RESOURCE_MINS,
   AGENT_RESOURCE_DEFAULTS,
   scheduleAgent,
@@ -143,31 +143,40 @@ const AGENT_TYPE_SUBTITLES: Record<string, string> = {
   nemoclaw:      "NVIDIA",
 };
 
+// ─── Proxmox disconnected sentinel (used to exclude Proxmox for single-task) ──
+
+const DISCONNECTED_PROXMOX: ProxmoxStatus = { connected: false, nodes: [] };
+
 // ─── Wizard steps ─────────────────────────────────────────────────────────────
-// Platform selection is GONE — the scheduler handles it.
-type Step = "type" | "role" | "review";
+
+type WizardMode = "single-task" | "long-running";
+type Step = "mission" | "type" | "review";
 
 const STEP_LABELS: Record<Step, string> = {
-  type: "01 / agent type",
-  role: "02 / role & mission",
-  review: "03 / review & deploy",
+  mission: "01 / mission",
+  type:    "02 / agent type",
+  review:  "03 / review & deploy",
 };
 
-const STEPS: Step[] = ["type", "role", "review"];
+const STEPS: Step[] = ["mission", "type", "review"];
 
 // ─── Form state ───────────────────────────────────────────────────────────────
 
 interface FormState {
+  mode: WizardMode;
+  // Single-task
+  taskDescription: string;
+  // Long-running
   name: string;
-  type: AgentType | "";
   role: string;
   missionDescription: string;
+  // Shared
+  type: AgentType | "";
   cpus: number;
   memoryMb: number;
-  persistent: boolean;
   gpuRequired: boolean;
   gpuMemoryMb: number;
-  /** Set when user explicitly overrides the scheduler's recommendation */
+  persistent: boolean;
   platformOverride?: PlatformTarget;
 }
 
@@ -205,43 +214,54 @@ function StepIndicator({ current }: { current: Step }) {
 
 export function HireAgent() {
   const navigate = useNavigate();
-  const [step, setStep] = useState<Step>("type");
+  const [step, setStep] = useState<Step>("mission");
   const [form, setForm] = useState<FormState>({
+    mode: "single-task",
+    taskDescription: "",
     name: "",
-    type: "",
     role: "",
     missionDescription: "",
-    cpus: 0.5,
-    memoryMb: 512,
-    persistent: true,
+    type: "",
+    cpus: 1,
+    memoryMb: 1024,
     gpuRequired: false,
     gpuMemoryMb: 8192,
+    persistent: false,
   });
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  function selectMode(mode: WizardMode) {
+    setForm((prev) => {
+      // Destructure out platformOverride so the optional key is absent rather than undefined
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { platformOverride: _removed, ...rest } = prev;
+      return { ...rest, mode, type: "" as AgentType | "", persistent: mode === "long-running" };
+    });
+  }
+
   function selectType(type: AgentType) {
-    const mins = AGENT_RESOURCE_MINS[type];
+    const defaults = AGENT_RESOURCE_DEFAULTS[type];
     setForm((prev) => ({
       ...prev,
       type,
-      cpus: mins.cpus,
-      memoryMb: mins.memoryMb,
+      cpus: defaults.cpus,
+      memoryMb: defaults.memoryMb,
     }));
   }
 
   function canAdvance() {
-    if (step === "type") return form.type !== "";
-    if (step === "role") {
-      if (!form.name.trim() || !form.role.trim() || !form.missionDescription.trim()) return false;
-      if (form.type) {
-        const mins = AGENT_RESOURCE_MINS[form.type];
-        if (form.cpus < mins.cpus || form.memoryMb < mins.memoryMb) return false;
-      }
-      return true;
+    if (step === "mission") {
+      if (form.mode === "single-task") return form.taskDescription.trim().length > 0;
+      return (
+        form.name.trim().length > 0 &&
+        form.role.trim().length > 0 &&
+        form.missionDescription.trim().length > 0
+      );
     }
+    if (step === "type") return form.type !== "";
     return true;
   }
 
@@ -270,50 +290,83 @@ export function HireAgent() {
     ...(proxmoxStatus ? { proxmox: proxmoxStatus } : {}),
   };
 
-  function deploy() {
-    if (form.type === "") return;
-    hireMutation.mutate({
-      name: form.name,
-      type: form.type as AgentType,
-      role: form.role,
-      mission: {
-        description: form.missionDescription,
-        steps: [],
-        onComplete: "idle",
-      },
-      resources: { cpus: form.cpus, memoryMb: form.memoryMb },
-      ...(form.gpuRequired ? { gpu: { required: true, memoryMb: form.gpuMemoryMb } } : {}),
-      env: {},
-      persistent: form.persistent,
-      ...(form.platformOverride ? { platformOverride: form.platformOverride } : {}),
-    });
-  }
+  // For single-task, exclude Proxmox from placement options entirely
+  const reviewContext = form.mode === "single-task"
+    ? {
+        ...(dockerStatus ? { docker: dockerStatus } : {}),
+        ...(portainerStatus ? { portainer: portainerStatus } : {}),
+        proxmox: DISCONNECTED_PROXMOX,
+      }
+    : liveContext;
 
-  // Build placement requirements from current form state for the preview
   const placementReqs =
     form.type !== ""
       ? {
           type: form.type as AgentType,
-          resources: { cpus: form.cpus, memoryMb: form.memoryMb },
-          persistent: form.persistent,
-          ...(form.gpuRequired
+          resources:
+            form.mode === "single-task"
+              ? AGENT_RESOURCE_DEFAULTS[form.type as AgentType]
+              : { cpus: form.cpus, memoryMb: form.memoryMb },
+          persistent: form.mode === "single-task" ? false : form.persistent,
+          ...(form.mode === "long-running" && form.gpuRequired
             ? { gpu: { required: true, memoryMb: form.gpuMemoryMb } }
             : {}),
         }
       : null;
 
-  // Compute final platform for the review summary (using live data when available)
   const schedulerDecision =
     placementReqs
       ? scheduleAgent(placementReqs, {
           docker: dockerStatus ?? null,
           portainer: portainerStatus ?? null,
-          proxmox: proxmoxStatus ?? null,
+          proxmox: form.mode === "single-task" ? DISCONNECTED_PROXMOX : (proxmoxStatus ?? null),
         })
       : null;
 
-  const resolvedPlatform =
-    form.platformOverride ?? schedulerDecision?.placement;
+  const resolvedPlatform = form.platformOverride ?? schedulerDecision?.placement;
+
+  function deploy() {
+    if (form.type === "") return;
+    const type = form.type as AgentType;
+
+    if (form.mode === "single-task") {
+      const suffix = Math.random().toString(36).slice(2, 6);
+      const defaults = AGENT_RESOURCE_DEFAULTS[type];
+      hireMutation.mutate({
+        name: `task-${type}-${suffix}`,
+        type,
+        role: "Task executor",
+        mission: {
+          description: form.taskDescription,
+          steps: [],
+          onComplete: "terminate",
+        },
+        resources: { cpus: defaults.cpus, memoryMb: defaults.memoryMb },
+        env: {},
+        persistent: false,
+        ...(form.platformOverride ? { platformOverride: form.platformOverride } : {}),
+      });
+    } else {
+      hireMutation.mutate({
+        name: form.name,
+        type,
+        role: form.role,
+        mission: {
+          description: form.missionDescription,
+          steps: [],
+          onComplete: "idle",
+        },
+        resources: { cpus: form.cpus, memoryMb: form.memoryMb },
+        ...(form.gpuRequired ? { gpu: { required: true, memoryMb: form.gpuMemoryMb } } : {}),
+        env: {},
+        persistent: form.persistent,
+        ...(form.platformOverride ? { platformOverride: form.platformOverride } : {}),
+      });
+    }
+  }
+
+  // Agent type grid filtered by mode
+  const visibleTypes = form.mode === "single-task" ? CODING_AGENT_TYPES : AGENT_TYPES;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -336,15 +389,120 @@ export function HireAgent() {
         <div className="max-w-2xl mx-auto">
           <StepIndicator current={step} />
 
-          {/* ── Step 1: Agent type ── */}
+          {/* ── Step 1: Mission setup ── */}
+          {step === "mission" && (
+            <div>
+              <h2 className="mono-header text-lg mb-1">Define Your Mission</h2>
+              <p className="text-[12px] text-gray-500 mb-5">
+                Choose how this agent will work, then describe what it should do.
+              </p>
+
+              {/* Mode selector */}
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                {(
+                  [
+                    {
+                      mode: "single-task" as WizardMode,
+                      label: "Single Task",
+                      desc: "Run a coding task to completion, then terminate",
+                    },
+                    {
+                      mode: "long-running" as WizardMode,
+                      label: "Long Running",
+                      desc: "Persistent agent with a defined role and mission",
+                    },
+                  ] as const
+                ).map(({ mode, label, desc }) => (
+                  <button
+                    key={mode}
+                    onClick={() => selectMode(mode)}
+                    type="button"
+                    className={`text-left p-4 rounded-lg border transition-all ${
+                      form.mode === mode
+                        ? "border-accent-cyan/60 bg-accent-cyan/8 shadow-[0_0_12px_rgba(6,182,212,0.15)]"
+                        : "border-surface-border bg-surface-raised hover:border-gray-600 hover:bg-surface-overlay"
+                    }`}
+                  >
+                    <div
+                      className={`text-[13px] font-semibold mb-1 ${
+                        form.mode === mode ? "text-accent-cyan" : "text-gray-200"
+                      }`}
+                    >
+                      {label}
+                    </div>
+                    <div className="text-[11px] text-gray-500 leading-snug">{desc}</div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Single-task fields */}
+              {form.mode === "single-task" && (
+                <div>
+                  <label className="label block mb-1.5">task</label>
+                  <textarea
+                    rows={5}
+                    value={form.taskDescription}
+                    onChange={(e) => update("taskDescription", e.target.value)}
+                    placeholder="Describe the coding task you want the agent to complete..."
+                    className="w-full bg-surface border border-surface-border rounded-sm px-3 py-2 text-[13px] text-gray-100 placeholder-gray-600 focus:outline-none focus:border-accent-cyan/50 resize-none"
+                    autoFocus
+                  />
+                  <p className="text-[11px] text-gray-600 mt-1.5">
+                    Name, role, and resources are auto-configured. The agent terminates when the task completes.
+                  </p>
+                </div>
+              )}
+
+              {/* Long-running fields */}
+              {form.mode === "long-running" && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="label block mb-1.5">agent name</label>
+                    <input
+                      type="text"
+                      value={form.name}
+                      onChange={(e) => update("name", e.target.value)}
+                      placeholder="e.g. PR Reviewer"
+                      className="w-full bg-surface border border-surface-border rounded-sm px-3 py-2 text-[13px] text-gray-100 placeholder-gray-600 focus:outline-none focus:border-accent-cyan/50"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="label block mb-1.5">role description</label>
+                    <input
+                      type="text"
+                      value={form.role}
+                      onChange={(e) => update("role", e.target.value)}
+                      placeholder="e.g. Senior code reviewer specializing in TypeScript"
+                      className="w-full bg-surface border border-surface-border rounded-sm px-3 py-2 text-[13px] text-gray-100 placeholder-gray-600 focus:outline-none focus:border-accent-cyan/50"
+                    />
+                  </div>
+                  <div>
+                    <label className="label block mb-1.5">mission objective</label>
+                    <textarea
+                      rows={3}
+                      value={form.missionDescription}
+                      onChange={(e) => update("missionDescription", e.target.value)}
+                      placeholder="Describe what this agent should accomplish..."
+                      className="w-full bg-surface border border-surface-border rounded-sm px-3 py-2 text-[13px] text-gray-100 placeholder-gray-600 focus:outline-none focus:border-accent-cyan/50 resize-none"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Step 2: Agent type ── */}
           {step === "type" && (
             <div>
               <h2 className="mono-header text-lg mb-1">Select Agent Type</h2>
               <p className="text-[12px] text-gray-500 mb-5">
-                Choose the AI agent to deploy. Infrastructure is selected automatically.
+                {form.mode === "single-task"
+                  ? "Choose your coding agent. Only agents that support task mode are shown."
+                  : "Choose the AI agent to deploy. Infrastructure is selected automatically."}
               </p>
               <div className="grid grid-cols-5 gap-2">
-                {AGENT_TYPES.map((type) => {
+                {visibleTypes.map((type) => {
                   const selected = form.type === type;
                   return (
                     <button
@@ -382,150 +540,72 @@ export function HireAgent() {
             </div>
           )}
 
-          {/* ── Step 2: Role, mission, resources ── */}
-          {step === "role" && (
+          {/* ── Step 3a: Review — single task ── */}
+          {step === "review" && form.mode === "single-task" && (
             <div>
-              <h2 className="mono-header text-lg mb-1">Assign Role & Mission</h2>
+              <h2 className="mono-header text-lg mb-1">Review & Deploy</h2>
               <p className="text-[12px] text-gray-500 mb-6">
-                Define what this agent should do. Resource requirements inform placement.
+                Your task will run to completion, then the agent terminates.
               </p>
-              <div className="space-y-4">
-                <div>
-                  <label className="label block mb-1.5">agent name</label>
-                  <input
-                    type="text"
-                    value={form.name}
-                    onChange={(e) => update("name", e.target.value)}
-                    placeholder="e.g. PR Reviewer"
-                    className="w-full bg-surface border border-surface-border rounded-sm px-3 py-2 text-[13px] text-gray-100 placeholder-gray-600 focus:outline-none focus:border-accent-cyan/50"
-                  />
+
+              <div className="card p-4 mb-4">
+                <div className="label mb-3">configuration</div>
+                <div className="flex gap-4 text-[12px] border-b border-surface-border py-2 first:pt-0">
+                  <span className="label w-20 flex-shrink-0 pt-0.5">task</span>
+                  <span className="text-gray-300 break-words">{form.taskDescription}</span>
                 </div>
-
-                <div>
-                  <label className="label block mb-1.5">role description</label>
-                  <input
-                    type="text"
-                    value={form.role}
-                    onChange={(e) => update("role", e.target.value)}
-                    placeholder="e.g. Senior code reviewer specializing in TypeScript"
-                    className="w-full bg-surface border border-surface-border rounded-sm px-3 py-2 text-[13px] text-gray-100 placeholder-gray-600 focus:outline-none focus:border-accent-cyan/50"
-                  />
+                <div className="flex gap-4 text-[12px] border-b border-surface-border py-2">
+                  <span className="label w-20 flex-shrink-0 pt-0.5">type</span>
+                  <span className="text-gray-300">{form.type ? AGENT_TYPE_LABELS[form.type as AgentType] : ""}</span>
                 </div>
-
-                <div>
-                  <label className="label block mb-1.5">mission objective</label>
-                  <textarea
-                    rows={3}
-                    value={form.missionDescription}
-                    onChange={(e) => update("missionDescription", e.target.value)}
-                    placeholder="Describe what this agent should accomplish in natural language..."
-                    className="w-full bg-surface border border-surface-border rounded-sm px-3 py-2 text-[13px] text-gray-100 placeholder-gray-600 focus:outline-none focus:border-accent-cyan/50 resize-none"
-                  />
+                <div className="flex gap-4 text-[12px] border-b border-surface-border py-2">
+                  <span className="label w-20 flex-shrink-0 pt-0.5">name</span>
+                  <span className="text-gray-600 italic">auto-generated</span>
                 </div>
-
-                {/* Resources */}
-                {form.type && (() => {
-                  const mins = AGENT_RESOURCE_MINS[form.type as AgentType];
-                  const cpuBelow = form.cpus < mins.cpus;
-                  const memBelow = form.memoryMb < mins.memoryMb;
-                  return (
-                    <div>
-                      <div className="label mb-2">resource limits</div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-[11px] text-gray-500 block mb-1">CPUs</label>
-                          <input
-                            type="number"
-                            min={mins.cpus}
-                            max={32}
-                            step={0.25}
-                            value={form.cpus}
-                            onChange={(e) => update("cpus", Number(e.target.value))}
-                            className={`w-full bg-surface border rounded-sm px-3 py-2 text-[13px] text-gray-100 focus:outline-none focus:border-accent-cyan/50 ${
-                              cpuBelow ? "border-red-500/60" : "border-surface-border"
-                            }`}
-                          />
-                          <div className={`text-[10px] mt-0.5 ${cpuBelow ? "text-red-400" : "text-gray-600"}`}>
-                            min {mins.cpus} CPU{cpuBelow ? " — below minimum" : ""}
-                          </div>
-                        </div>
-                        <div>
-                          <label className="text-[11px] text-gray-500 block mb-1">Memory (MB)</label>
-                          <input
-                            type="number"
-                            min={mins.memoryMb}
-                            max={65536}
-                            step={256}
-                            value={form.memoryMb}
-                            onChange={(e) => update("memoryMb", Number(e.target.value))}
-                            className={`w-full bg-surface border rounded-sm px-3 py-2 text-[13px] text-gray-100 focus:outline-none focus:border-accent-cyan/50 ${
-                              memBelow ? "border-red-500/60" : "border-surface-border"
-                            }`}
-                          />
-                          <div className={`text-[10px] mt-0.5 ${memBelow ? "text-red-400" : "text-gray-600"}`}>
-                            min {mins.memoryMb} MB{memBelow ? " — below minimum" : ""}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* GPU toggle */}
-                <div className="card p-3 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="gpuRequired"
-                      checked={form.gpuRequired}
-                      onChange={(e) => update("gpuRequired", e.target.checked)}
-                      className="w-3.5 h-3.5 accent-accent-cyan"
-                    />
-                    <label htmlFor="gpuRequired" className="text-[12px] text-gray-300 cursor-pointer">
-                      Requires GPU
-                    </label>
-                    <span className="text-[11px] text-gray-600">
-                      — scheduler will only consider GPU-capable platforms
-                    </span>
-                  </div>
-                  {form.gpuRequired && (
-                    <div className="pl-6">
-                      <label className="text-[11px] text-gray-500 block mb-1">Min GPU memory (MB)</label>
-                      <input
-                        type="number"
-                        min={1024}
-                        max={81920}
-                        step={1024}
-                        value={form.gpuMemoryMb}
-                        onChange={(e) => update("gpuMemoryMb", Number(e.target.value))}
-                        className="w-40 bg-surface border border-surface-border rounded-sm px-3 py-1.5 text-[13px] text-gray-100 focus:outline-none focus:border-accent-cyan/50"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Persistence */}
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    id="persistent"
-                    checked={form.persistent}
-                    onChange={(e) => update("persistent", e.target.checked)}
-                    className="w-3.5 h-3.5 accent-accent-cyan"
-                  />
-                  <label htmlFor="persistent" className="text-[12px] text-gray-300 cursor-pointer">
-                    Persistent — survive restarts
-                  </label>
-                  <span className="text-[11px] text-gray-600">
-                    — favours Portainer or Proxmox over ephemeral Docker containers
+                <div className="flex gap-4 text-[12px] border-b border-surface-border py-2">
+                  <span className="label w-20 flex-shrink-0 pt-0.5">resources</span>
+                  <span className="text-gray-300">
+                    {form.type
+                      ? `${AGENT_RESOURCE_DEFAULTS[form.type as AgentType].cpus} CPUs · ${AGENT_RESOURCE_DEFAULTS[form.type as AgentType].memoryMb} MB RAM (auto)`
+                      : ""}
                   </span>
                 </div>
+                <div className="flex gap-4 text-[12px] py-2 last:pb-0">
+                  <span className="label w-20 flex-shrink-0 pt-0.5">lifecycle</span>
+                  <span className="text-gray-300">terminates on complete</span>
+                </div>
               </div>
+
+              <div className="mb-4">
+                <div className="label mb-2">placement</div>
+                {placementReqs && (
+                  <PlacementPreview
+                    requirements={placementReqs}
+                    {...(form.platformOverride ? { override: form.platformOverride } : {})}
+                    onPlacement={(p) => update("platformOverride", p)}
+                    context={reviewContext}
+                  />
+                )}
+              </div>
+
+              {resolvedPlatform && (
+                <div className="text-[11px] text-gray-600 flex items-center gap-1.5">
+                  <span className="status-dot bg-status-running" />
+                  Agent will be deployed on{" "}
+                  <span className="text-gray-400">
+                    {resolvedPlatform.type === "portainer"
+                      ? `Portainer / ${resolvedPlatform.endpointName ?? `endpoint ${resolvedPlatform.endpointId}`}`
+                      : resolvedPlatform.type === "proxmox"
+                      ? `Proxmox / ${resolvedPlatform.node} (${resolvedPlatform.vmType})`
+                      : "Docker"}
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
-          {/* ── Step 3: Review + placement preview ── */}
-          {step === "review" && (
+          {/* ── Step 3b: Review — long running ── */}
+          {step === "review" && form.mode === "long-running" && (
             <div>
               <h2 className="mono-header text-lg mb-1">Review & Deploy</h2>
               <p className="text-[12px] text-gray-500 mb-6">
@@ -537,21 +617,9 @@ export function HireAgent() {
                 <div className="label mb-3">configuration</div>
                 {[
                   { label: "name", val: form.name },
-                  {
-                    label: "type",
-                    val: form.type
-                      ? AGENT_TYPE_LABELS[form.type as AgentType]
-                      : "",
-                  },
+                  { label: "type", val: form.type ? AGENT_TYPE_LABELS[form.type as AgentType] : "" },
                   { label: "role", val: form.role },
                   { label: "mission", val: form.missionDescription },
-                  {
-                    label: "resources",
-                    val: `${form.cpus} CPUs · ${form.memoryMb}MB RAM${
-                      form.gpuRequired ? ` · GPU ${form.gpuMemoryMb}MB+` : ""
-                    }`,
-                  },
-                  { label: "persistent", val: form.persistent ? "yes" : "no" },
                 ].map(({ label, val }) => (
                   <div
                     key={label}
@@ -563,22 +631,114 @@ export function HireAgent() {
                 ))}
               </div>
 
-              {/* Placement preview */}
+              {/* Resources — editable; changes re-run placement preview live */}
+              {form.type && (() => {
+                const mins = AGENT_RESOURCE_MINS[form.type as AgentType];
+                const cpuBelow = form.cpus < mins.cpus;
+                const memBelow = form.memoryMb < mins.memoryMb;
+                return (
+                  <div className="mb-4">
+                    <div className="label mb-2">resource limits</div>
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <div>
+                        <label className="text-[11px] text-gray-500 block mb-1">CPUs</label>
+                        <input
+                          type="number"
+                          min={mins.cpus}
+                          max={32}
+                          step={0.25}
+                          value={form.cpus}
+                          onChange={(e) => update("cpus", Number(e.target.value))}
+                          className={`w-full bg-surface border rounded-sm px-3 py-2 text-[13px] text-gray-100 focus:outline-none focus:border-accent-cyan/50 ${
+                            cpuBelow ? "border-red-500/60" : "border-surface-border"
+                          }`}
+                        />
+                        <div className={`text-[10px] mt-0.5 ${cpuBelow ? "text-red-400" : "text-gray-600"}`}>
+                          min {mins.cpus} CPU{cpuBelow ? " — below minimum" : ""}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-gray-500 block mb-1">Memory (MB)</label>
+                        <input
+                          type="number"
+                          min={mins.memoryMb}
+                          max={65536}
+                          step={256}
+                          value={form.memoryMb}
+                          onChange={(e) => update("memoryMb", Number(e.target.value))}
+                          className={`w-full bg-surface border rounded-sm px-3 py-2 text-[13px] text-gray-100 focus:outline-none focus:border-accent-cyan/50 ${
+                            memBelow ? "border-red-500/60" : "border-surface-border"
+                          }`}
+                        />
+                        <div className={`text-[10px] mt-0.5 ${memBelow ? "text-red-400" : "text-gray-600"}`}>
+                          min {mins.memoryMb} MB{memBelow ? " — below minimum" : ""}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="card p-3 space-y-3 mb-3">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          id="gpuRequired"
+                          checked={form.gpuRequired}
+                          onChange={(e) => update("gpuRequired", e.target.checked)}
+                          className="w-3.5 h-3.5 accent-accent-cyan"
+                        />
+                        <label htmlFor="gpuRequired" className="text-[12px] text-gray-300 cursor-pointer">
+                          Requires GPU
+                        </label>
+                        <span className="text-[11px] text-gray-600">
+                          — scheduler will only consider GPU-capable platforms
+                        </span>
+                      </div>
+                      {form.gpuRequired && (
+                        <div className="pl-6">
+                          <label className="text-[11px] text-gray-500 block mb-1">Min GPU memory (MB)</label>
+                          <input
+                            type="number"
+                            min={1024}
+                            max={81920}
+                            step={1024}
+                            value={form.gpuMemoryMb}
+                            onChange={(e) => update("gpuMemoryMb", Number(e.target.value))}
+                            className="w-40 bg-surface border border-surface-border rounded-sm px-3 py-1.5 text-[13px] text-gray-100 focus:outline-none focus:border-accent-cyan/50"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        id="persistent"
+                        checked={form.persistent}
+                        onChange={(e) => update("persistent", e.target.checked)}
+                        className="w-3.5 h-3.5 accent-accent-cyan"
+                      />
+                      <label htmlFor="persistent" className="text-[12px] text-gray-300 cursor-pointer">
+                        Persistent — survive restarts
+                      </label>
+                      <span className="text-[11px] text-gray-600">
+                        — favours Portainer or Proxmox over ephemeral Docker containers
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="mb-4">
                 <div className="label mb-2">placement</div>
                 {placementReqs && (
                   <PlacementPreview
                     requirements={placementReqs}
-                    {...(form.platformOverride
-                      ? { override: form.platformOverride }
-                      : {})}
+                    {...(form.platformOverride ? { override: form.platformOverride } : {})}
                     onPlacement={(p) => update("platformOverride", p)}
-                    context={liveContext}
+                    context={reviewContext}
                   />
                 )}
               </div>
 
-              {/* Resolved platform callout */}
               {resolvedPlatform && (
                 <div className="text-[11px] text-gray-600 flex items-center gap-1.5">
                   <span className="status-dot bg-status-running" />
@@ -599,9 +759,9 @@ export function HireAgent() {
           <div className="flex justify-between mt-8">
             <button
               className="btn-ghost"
-              onClick={step === "type" ? () => navigate("/") : prevStep}
+              onClick={step === "mission" ? () => navigate("/") : prevStep}
             >
-              {step === "type" ? "cancel" : "← back"}
+              {step === "mission" ? "cancel" : "← back"}
             </button>
             {step === "review" ? (
               <button
