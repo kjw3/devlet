@@ -76,6 +76,20 @@ export interface AgentState {
   missionProgress: MissionProgress;
   logs: string[];
   error?: string;
+  access?: {
+    terminal?: {
+      url: string;
+      username: string;
+      password?: string;
+    };
+    openclaw?: {
+      url: string;
+      token?: string;
+    };
+    moltis?: {
+      url: string;
+    };
+  };
 }
 
 // Re-export platform types for convenience

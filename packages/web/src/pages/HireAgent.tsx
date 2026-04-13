@@ -585,7 +585,7 @@ export function HireAgent() {
                   Agent will be deployed on{" "}
                   <span className="text-gray-400">
                     {resolvedPlatform.type === "portainer"
-                      ? `Portainer (endpoint ${resolvedPlatform.endpointId})`
+                      ? `Portainer / ${resolvedPlatform.endpointName ?? `endpoint ${resolvedPlatform.endpointId}`}`
                       : resolvedPlatform.type === "proxmox"
                       ? `Proxmox / ${resolvedPlatform.node} (${resolvedPlatform.vmType})`
                       : "Docker"}

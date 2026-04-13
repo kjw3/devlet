@@ -42,6 +42,27 @@ export async function createPortainerContainer(
 
   await pullImage(endpointId, image);
 
+  const ExposedPorts: Record<string, Record<string, never>> = {};
+  const PortBindings: Record<string, Array<{ HostIp: string; HostPort: string }>> = {};
+
+  const terminalPort = agentConfig.env["DEVLET_TERMINAL_PORT"];
+  if (terminalPort) {
+    ExposedPorts[`${terminalPort}/tcp`] = {};
+    PortBindings[`${terminalPort}/tcp`] = [{ HostIp: "0.0.0.0", HostPort: terminalPort }];
+  }
+
+  if (agentConfig.type === "openclaw") {
+    const hostPort = agentConfig.env["OPENCLAW_HOST_PORT"] ?? "18789";
+    ExposedPorts["18789/tcp"] = {};
+    PortBindings["18789/tcp"] = [{ HostIp: "0.0.0.0", HostPort: hostPort }];
+  }
+
+  if (agentConfig.type === "moltis") {
+    const hostPort = agentConfig.env["MOLTIS_HOST_PORT"] ?? "13131";
+    ExposedPorts["13131/tcp"] = {};
+    PortBindings["13131/tcp"] = [{ HostIp: "0.0.0.0", HostPort: hostPort }];
+  }
+
   const createRes = await fetch(
     `${proxyUrl(endpointId, "/containers/create")}?name=devlet-${agentConfig.id}`,
     {
@@ -50,6 +71,7 @@ export async function createPortainerContainer(
       body: JSON.stringify({
         Image: image,
         Env: await buildContainerEnv(agentConfig),
+        ExposedPorts,
         Labels: {
           "devlet.agent.id": agentConfig.id,
           "devlet.agent.type": agentConfig.type,
@@ -59,6 +81,7 @@ export async function createPortainerContainer(
         HostConfig: {
           NanoCpus: Math.round(agentConfig.resources.cpus * 1e9),
           Memory: agentConfig.resources.memoryMb * 1024 * 1024,
+          PortBindings,
         },
       }),
     }

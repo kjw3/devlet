@@ -16,6 +16,8 @@ import {
   SetDefaultInputSchema,
   SetAgentTypeConfigInputSchema,
   AgentTypeSchema,
+  SetPortainerExclusionInputSchema,
+  SetProxmoxExclusionInputSchema,
 } from "./schemas/index.js";
 import type {
   AgentState,
@@ -27,6 +29,7 @@ import type {
   AgentTemplate,
   ProviderInfo,
   AgentTypeConfigMap,
+  PlatformExclusions,
 } from "./types/index.js";
 
 const t = initTRPC.create();
@@ -89,10 +92,17 @@ export const appRouter = router({
     portainer: router({
       status: publicProcedure.query(unimplemented as () => PortainerStatus),
       stacks: publicProcedure.query(unimplemented as () => PortainerStack[]),
+      exclusions: publicProcedure.query(unimplemented as () => PlatformExclusions),
+      setExcluded: publicProcedure
+        .input(SetPortainerExclusionInputSchema)
+        .mutation(unimplemented as () => PlatformExclusions),
     }),
 
     proxmox: router({
       status: publicProcedure.query(unimplemented as () => ProxmoxStatus),
+      setExcluded: publicProcedure
+        .input(SetProxmoxExclusionInputSchema)
+        .mutation(unimplemented as () => PlatformExclusions),
     }),
   }),
 

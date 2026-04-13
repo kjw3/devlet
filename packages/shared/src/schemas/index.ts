@@ -129,6 +129,20 @@ export const AgentStateSchema = z.object({
   missionProgress: MissionProgressSchema,
   logs: z.array(z.string()),
   error: z.string().optional(),
+  access: z.object({
+    terminal: z.object({
+      url: z.string().url(),
+      username: z.string().min(1),
+      password: z.string().optional(),
+    }).optional(),
+    openclaw: z.object({
+      url: z.string().url(),
+      token: z.string().optional(),
+    }).optional(),
+    moltis: z.object({
+      url: z.string().url(),
+    }).optional(),
+  }).optional(),
 });
 
 // ─── Update Mission Input ─────────────────────────────────────────────────────
@@ -165,4 +179,21 @@ export const SetAgentTypeConfigInputSchema = z.object({
   provider: ProviderNameSchema,
   /** Omit to use the provider's default from the Providers page. */
   model: z.string().min(1).optional(),
+});
+
+// ─── Platform Scheduling Exclusions ──────────────────────────────────────────
+
+export const PlatformExclusionsSchema = z.object({
+  portainerEndpoints: z.array(z.string()).default([]),
+  proxmoxNodes: z.array(z.string()).default([]),
+});
+
+export const SetPortainerExclusionInputSchema = z.object({
+  target: z.string().min(1),
+  excluded: z.boolean(),
+});
+
+export const SetProxmoxExclusionInputSchema = z.object({
+  target: z.string().min(1),
+  excluded: z.boolean(),
 });

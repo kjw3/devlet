@@ -1,8 +1,9 @@
 export type PlatformType = "docker" | "portainer" | "proxmox";
+export type PlatformArchitecture = "amd64" | "arm64" | "unknown";
 
 export type PlatformTarget =
   | { type: "docker"; socketPath?: string }
-  | { type: "portainer"; endpointId: number; stackName?: string }
+  | { type: "portainer"; endpointId: number; endpointName?: string; stackName?: string }
   | { type: "proxmox"; node: string; vmType: "lxc" | "qemu" };
 
 // Status shapes returned by platform health checks
@@ -12,6 +13,7 @@ export interface DockerStatus {
   containers: { running: number; stopped: number; total: number };
   /** Whether the Docker host has GPU runtime support (nvidia-container-runtime) */
   gpuAvailable?: boolean;
+  architecture?: PlatformArchitecture;
   error?: string;
 }
 
@@ -23,6 +25,13 @@ export interface PortainerEndpoint {
   status: number;
   /** Whether this endpoint has hosts with GPU support */
   gpuAvailable?: boolean;
+  /** Excluded from scheduling by configuration */
+  excluded?: boolean;
+  architecture?: PlatformArchitecture;
+  /** Running container count from the latest snapshot */
+  runningContainers?: number;
+  /** Total host memory in MB from the latest snapshot */
+  totalMemoryMb?: number;
 }
 
 export interface PortainerStack {
@@ -54,6 +63,9 @@ export interface ProxmoxNode {
   memoryTotal: number;     // MB
   /** Number of GPU devices available for passthrough on this node */
   gpuCount?: number;
+  /** Excluded from scheduling by configuration */
+  excluded?: boolean;
+  architecture?: PlatformArchitecture;
 }
 
 export interface ProxmoxStatus {

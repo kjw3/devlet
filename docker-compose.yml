@@ -1,8 +1,6 @@
 services:
   devlet-server:
-    build:
-      context: .
-      dockerfile: packages/server/Dockerfile
+    image: ${SERVER_IMAGE:-ghcr.io/kjw3/devlet-server:sha-6e97e6c}
     container_name: devlet-server
     restart: unless-stopped
     ports:
@@ -16,9 +14,7 @@ services:
       - "devlet.managed=true"
 
   devlet-web:
-    build:
-      context: .
-      dockerfile: packages/web/Dockerfile
+    image: ${WEB_IMAGE:-ghcr.io/kjw3/devlet-web:sha-6e97e6c}
     container_name: devlet-web
     restart: unless-stopped
     ports:

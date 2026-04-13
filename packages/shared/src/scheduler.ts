@@ -18,6 +18,7 @@
 import type { AgentType } from "./types/agent.js";
 import type {
   DockerStatus,
+  PlatformArchitecture,
   PortainerStatus,
   ProxmoxStatus,
   PlatformTarget,
@@ -70,6 +71,18 @@ const PROXMOX_AFFINITY: Record<AgentType, number> = {
   "nanoclaw": 10,
   "hermes": 5,        // Proxmox is too heavy for a lightweight dispatcher
 };
+
+function architectureScore(arch: PlatformArchitecture | undefined): number {
+  if (arch === "amd64") return 4;
+  if (arch === "arm64") return 1;
+  return 0;
+}
+
+function architectureReason(arch: PlatformArchitecture | undefined): string | null {
+  if (arch === "amd64") return "amd64 host — broadest compatibility for toolchain dependencies";
+  if (arch === "arm64") return "arm64 host — suitable for ARM systems such as Jetson";
+  return null;
+}
 
 // ─── Platform scorers ─────────────────────────────────────────────────────────
 
@@ -127,6 +140,10 @@ function scoreDocker(
     reasons.push("compatible with Docker");
   }
 
+  score += architectureScore(status.architecture);
+  const archReason = architectureReason(status.architecture);
+  if (archReason) reasons.push(archReason);
+
   // Persistence fit (±15 pts)
   if (reqs.persistent) {
     score -= 15;
@@ -160,19 +177,29 @@ function scorePortainer(
   status: PortainerStatus
 ): PlatformScore {
   const onlineEndpoints = status.connected
-    ? status.endpoints.filter((e) => e.status === 1)
+    ? status.endpoints.filter((e) => e.status === 1 && !e.excluded)
     : [];
   const gpuEndpoints = onlineEndpoints.filter((e) => e.gpuAvailable);
 
-  // Pick the best endpoint for this workload
-  const targetEndpoint =
-    reqs.gpu?.required
-      ? gpuEndpoints[0]
-      : onlineEndpoints[0];
+  // Pick the best endpoint: architecture first, then fewest running containers (most headroom)
+  function sortEndpoints<T extends { architecture?: import("./types/platform.js").PlatformArchitecture; runningContainers?: number }>(
+    list: T[]
+  ): T[] {
+    return list.slice().sort((a, b) => {
+      const archDiff = architectureScore(b.architecture) - architectureScore(a.architecture);
+      if (archDiff !== 0) return archDiff;
+      return (a.runningContainers ?? 0) - (b.runningContainers ?? 0);
+    });
+  }
+
+  const targetEndpoint = reqs.gpu?.required
+    ? sortEndpoints(gpuEndpoints)[0]
+    : sortEndpoints(onlineEndpoints)[0];
 
   const platform: PlatformTarget = {
     type: "portainer",
     endpointId: targetEndpoint?.id ?? 1,
+    ...(targetEndpoint?.name ? { endpointName: targetEndpoint.name } : {}),
   };
 
   if (!status.connected) {
@@ -232,9 +259,27 @@ function scorePortainer(
       : `endpoint "${onlineEndpoints[0]!.name}" online`
   );
 
+  // Container headroom (0–10 pts) — fewer running containers = more capacity
+  if (targetEndpoint?.runningContainers !== undefined) {
+    const running = targetEndpoint.runningContainers;
+    const headroom = Math.max(0, 10 - running * 2);
+    score += headroom;
+    if (running < 4) {
+      reasons.push(`${running} containers running on "${targetEndpoint.name}" — plenty of headroom`);
+    } else if (running >= 8) {
+      reasons.push(`"${targetEndpoint.name}" is under load (${running} containers running)`);
+    }
+  }
+
   // Type affinity (0–25 pts)
   const affinity = PORTAINER_AFFINITY[reqs.type] ?? 15;
   score += affinity;
+
+  score += architectureScore(targetEndpoint?.architecture);
+  const archReason = architectureReason(targetEndpoint?.architecture);
+  if (archReason && targetEndpoint) {
+    reasons.push(`${archReason} on endpoint "${targetEndpoint.name}"`);
+  }
 
   // Persistence fit (0–20 pts) — Portainer supports named containers/stacks
   if (reqs.persistent) {
@@ -256,7 +301,7 @@ function scoreProxmox(
   status: ProxmoxStatus
 ): PlatformScore {
   const onlineNodes = status.connected
-    ? status.nodes.filter((n) => n.status === "online")
+    ? status.nodes.filter((n) => n.status === "online" && !n.excluded)
     : [];
   const gpuNodes = onlineNodes.filter((n) => (n.gpuCount ?? 0) > 0);
 
@@ -266,6 +311,7 @@ function scoreProxmox(
     .slice()
     .sort(
       (a, b) =>
+        architectureScore(b.architecture) - architectureScore(a.architecture) ||
         b.memoryTotal - b.memoryUsed - (a.memoryTotal - a.memoryUsed)
     )[0];
 
@@ -321,6 +367,12 @@ function scoreProxmox(
   score += affinity;
   if (affinity >= 20) {
     reasons.push(`${reqs.type} benefits from dedicated VM isolation`);
+  }
+
+  score += architectureScore(targetNode?.architecture);
+  const archReason = architectureReason(targetNode?.architecture);
+  if (archReason && targetNode) {
+    reasons.push(`${archReason} on node "${targetNode.name}"`);
   }
 
   // Persistence fit (0–25 pts) — VMs/LXCs are first-class persistent citizens
@@ -404,7 +456,7 @@ export function scheduleAgent(
     winner.platform.type === "docker"
       ? "Docker"
       : winner.platform.type === "portainer"
-      ? `Portainer (endpoint ${(winner.platform as { endpointId: number }).endpointId})`
+      ? `Portainer (${(winner.platform as { endpointName?: string; endpointId: number }).endpointName ?? `endpoint ${(winner.platform as { endpointId: number }).endpointId}`})`
       : `Proxmox (${(winner.platform as { node: string; vmType: string }).node} / ${(winner.platform as { vmType: string }).vmType})`;
 
   return {

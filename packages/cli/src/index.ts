@@ -6,6 +6,7 @@ import { fireCommand } from "./commands/fire.js";
 import { statusCommand } from "./commands/status.js";
 import { logsCommand } from "./commands/logs.js";
 import { modelsListCommand, modelsSetDefaultCommand } from "./commands/models.js";
+import { platformsSetExcludedCommand, platformsStatusCommand } from "./commands/platforms.js";
 
 const program = new Command();
 
@@ -54,5 +55,28 @@ modelsCmd
   .command("set-default <provider> <model>")
   .description("Set the default model for a provider (e.g. anthropic claude-sonnet-4-6)")
   .action((provider: string, model: string) => modelsSetDefaultCommand(provider, model));
+
+const platformsCmd = program
+  .command("platforms")
+  .description("Inspect and manage platform scheduling state");
+
+platformsCmd
+  .command("status")
+  .description("Show schedulable and excluded Portainer endpoints / Proxmox nodes")
+  .action(platformsStatusCommand);
+
+platformsCmd
+  .command("exclude <platform> <target>")
+  .description("Exclude a Portainer endpoint or Proxmox node from scheduling")
+  .action((platform: "portainer" | "proxmox", target: string) =>
+    platformsSetExcludedCommand(platform, target, true)
+  );
+
+platformsCmd
+  .command("include <platform> <target>")
+  .description("Re-include a Portainer endpoint or Proxmox node in scheduling")
+  .action((platform: "portainer" | "proxmox", target: string) =>
+    platformsSetExcludedCommand(platform, target, false)
+  );
 
 program.parse();

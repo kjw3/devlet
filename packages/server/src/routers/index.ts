@@ -6,6 +6,8 @@ import {
   SetDefaultInputSchema,
   SetAgentTypeConfigInputSchema,
   AgentTypeSchema,
+  SetPortainerExclusionInputSchema,
+  SetProxmoxExclusionInputSchema,
   AGENT_RESOURCE_MINS,
   type AgentConfig,
   type AgentState,
@@ -31,6 +33,11 @@ import {
 import { loadModelDefaults, saveModelDefaults } from "../models/config.js";
 import { listProviders } from "../models/providers.js";
 import { loadAgentTypeConfig, saveAgentTypeConfig } from "../agents/typeConfig.js";
+import {
+  loadEffectivePlatformExclusions,
+  setPortainerExcluded,
+  setProxmoxExcluded,
+} from "../platforms/exclusions.js";
 
 const t = initTRPC.context<{ authHeader?: string }>().create();
 const AUTH_SCHEME = "Bearer ";
@@ -48,6 +55,25 @@ const SECRET_ENV_PATTERNS = [
   /SESSION/i,
   /AUTH/i,
 ];
+
+async function getPortainerEndpointHost(endpointId: number): Promise<string> {
+  try {
+    const status = await probePortainer();
+    const endpoint = status.endpoints.find((item) => item.id === endpointId);
+    if (!endpoint) return "localhost";
+
+    if (endpoint.url.startsWith("unix://")) {
+      return "localhost";
+    }
+
+    const normalized = endpoint.url.includes("://")
+      ? endpoint.url
+      : `tcp://${endpoint.url}`;
+    return new URL(normalized).hostname || "localhost";
+  } catch {
+    return "localhost";
+  }
+}
 
 function authenticateRequest(authHeader?: string): void {
   const expected = process.env["DEVLET_AUTH_TOKEN"];
@@ -88,12 +114,54 @@ function sanitizeEnvValue(key: string, value: string): string | null {
   return value;
 }
 
-function sanitizeAgentState(state: AgentState): AgentState {
+async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
   const env = Object.fromEntries(
     Object.entries(state.config.env)
       .map(([key, value]) => [key, sanitizeEnvValue(key, value)] as const)
       .filter((entry): entry is [string, string] => entry[1] !== null)
   );
+
+  let access: AgentState["access"];
+  const terminalPort = state.config.env["DEVLET_TERMINAL_PORT"];
+  const terminalToken = state.config.env["DEVLET_TERMINAL_TOKEN"];
+  const openclawPort = state.config.env["OPENCLAW_HOST_PORT"];
+  const openclawToken = state.config.env["OPENCLAW_GATEWAY_TOKEN"];
+  const moltisPort = state.config.env["MOLTIS_HOST_PORT"];
+
+  let host = "localhost";
+  if (state.config.platform.type === "portainer") {
+    host = await getPortainerEndpointHost(state.config.platform.endpointId);
+  }
+
+  if (terminalPort) {
+    access = {
+      ...access,
+      terminal: {
+        url: `http://${host}:${terminalPort}`,
+        username: "devlet",
+        ...(terminalToken ? { password: terminalToken } : {}),
+      },
+    };
+  }
+
+  if (state.config.type === "openclaw" && openclawPort) {
+    access = {
+      ...access,
+      openclaw: {
+        url: `http://${host}:${openclawPort}`,
+        ...(openclawToken ? { token: openclawToken } : {}),
+      },
+    };
+  }
+
+  if (state.config.type === "moltis" && moltisPort) {
+    access = {
+      ...access,
+      moltis: {
+        url: `http://${host}:${moltisPort}`,
+      },
+    };
+  }
 
   return {
     ...state,
@@ -101,6 +169,7 @@ function sanitizeAgentState(state: AgentState): AgentState {
       ...state.config,
       env,
     },
+    ...(access ? { access } : {}),
   };
 }
 
@@ -193,7 +262,7 @@ function normalizeMission(mission: {
 
 export const appRouter = t.router({
   agents: t.router({
-    list: authProcedure.query(async () => (await listAgentStates()).map(sanitizeAgentState)),
+    list: authProcedure.query(async () => Promise.all((await listAgentStates()).map(sanitizeAgentState))),
 
     get: authProcedure.input(z.string()).query(async ({ input }) => sanitizeAgentState(await loadAgentState(input))),
 
@@ -416,10 +485,17 @@ export const appRouter = t.router({
     portainer: t.router({
       status: authProcedure.query(() => probePortainer()),
       stacks: authProcedure.query(() => []),
+      exclusions: authProcedure.query(() => loadEffectivePlatformExclusions()),
+      setExcluded: authProcedure
+        .input(SetPortainerExclusionInputSchema)
+        .mutation(({ input }) => setPortainerExcluded(input.target, input.excluded)),
     }),
 
     proxmox: t.router({
       status: authProcedure.query(() => probeProxmox()),
+      setExcluded: authProcedure
+        .input(SetProxmoxExclusionInputSchema)
+        .mutation(({ input }) => setProxmoxExcluded(input.target, input.excluded)),
     }),
   }),
 

@@ -20,7 +20,7 @@ const PLATFORM_LABELS: Record<string, string> = {
 };
 
 function platformLabel(p: PlatformTarget): string {
-  if (p.type === "portainer") return `Portainer / endpoint ${p.endpointId}`;
+  if (p.type === "portainer") return `Portainer / ${p.endpointName ?? `endpoint ${p.endpointId}`}`;
   if (p.type === "proxmox") return `Proxmox / ${p.node} (${p.vmType})`;
   return "Docker";
 }

@@ -2,6 +2,7 @@ import http from "node:http";
 import https from "node:https";
 import type { ProxmoxStatus } from "@devlet/shared";
 import { config } from "../config.js";
+import { loadEffectivePlatformExclusions } from "./exclusions.js";
 
 interface ProxmoxApiVersion {
   version: string;
@@ -13,6 +14,20 @@ interface ProxmoxApiNode {
   cpu: number;
   mem: number;
   maxmem: number;
+}
+
+interface ProxmoxApiNodeStatus {
+  cpuinfo?: {
+    arch?: string;
+  };
+  arch?: string;
+}
+
+function normalizeArchitecture(value: string | undefined): "amd64" | "arm64" | "unknown" {
+  const normalized = (value ?? "").toLowerCase();
+  if (normalized === "amd64" || normalized === "x86_64") return "amd64";
+  if (normalized === "arm64" || normalized === "aarch64") return "arm64";
+  return "unknown";
 }
 
 function fetchJson<T>(url: string, headers: Record<string, string>, insecure: boolean): Promise<T> {
@@ -77,6 +92,27 @@ export async function probeProxmox(): Promise<ProxmoxStatus> {
       fetchJson<{ data: ProxmoxApiNode[] }>(`${url}/api2/json/nodes`, headers, insecure),
     ]);
 
+    const exclusions = await loadEffectivePlatformExclusions();
+    const nodeArchitectures = new Map<string, "amd64" | "arm64" | "unknown">();
+
+    await Promise.all(
+      nodesData.data.map(async (node) => {
+        try {
+          const status = await fetchJson<{ data: ProxmoxApiNodeStatus }>(
+            `${url}/api2/json/nodes/${encodeURIComponent(node.node)}/status`,
+            headers,
+            insecure
+          );
+          nodeArchitectures.set(
+            node.node,
+            normalizeArchitecture(status.data.arch ?? status.data.cpuinfo?.arch)
+          );
+        } catch {
+          nodeArchitectures.set(node.node, "unknown");
+        }
+      })
+    );
+
     return {
       connected: true,
       version: versionData.data.version,
@@ -86,6 +122,8 @@ export async function probeProxmox(): Promise<ProxmoxStatus> {
         cpuUsage: n.cpu,
         memoryUsed: Math.round(n.mem / 1024 / 1024),
         memoryTotal: Math.round(n.maxmem / 1024 / 1024),
+        architecture: nodeArchitectures.get(n.node) ?? "unknown",
+        ...(exclusions.proxmoxNodes.includes(n.node) ? { excluded: true } : {}),
       })),
     };
   } catch (err) {

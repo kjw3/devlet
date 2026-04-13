@@ -4,3 +4,4 @@ export * from "./mission.js";
 export * from "./scheduler.js";
 export * from "./model.js";
 export * from "./agentTypeConfig.js";
+export * from "./platformExclusion.js";

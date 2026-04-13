@@ -5,6 +5,7 @@ export const MOCK_DOCKER_STATUS: DockerStatus = {
   version: "27.4.1",
   containers: { running: 3, stopped: 5, total: 8 },
   gpuAvailable: false, // local Docker host has no nvidia-container-runtime
+  architecture: "amd64",
 };
 
 export const MOCK_PORTAINER_STATUS: PortainerStatus = {
@@ -18,6 +19,7 @@ export const MOCK_PORTAINER_STATUS: PortainerStatus = {
       type: 1,
       status: 1,
       gpuAvailable: false,
+      architecture: "amd64",
     },
     {
       id: 2,
@@ -26,6 +28,7 @@ export const MOCK_PORTAINER_STATUS: PortainerStatus = {
       type: 1,
       status: 1,
       gpuAvailable: true, // remote host has nvidia-container-runtime
+      architecture: "arm64",
     },
   ],
 };
@@ -48,6 +51,7 @@ export const MOCK_PROXMOX_STATUS_ONLINE: ProxmoxStatus = {
       memoryUsed: 32768,
       memoryTotal: 131072,
       gpuCount: 2,
+      architecture: "amd64",
     },
     {
       name: "pve-02",
@@ -56,6 +60,7 @@ export const MOCK_PROXMOX_STATUS_ONLINE: ProxmoxStatus = {
       memoryUsed: 8192,
       memoryTotal: 65536,
       gpuCount: 0,
+      architecture: "arm64",
     },
   ],
 };

@@ -3,6 +3,13 @@ import net from "net";
 import type { AgentConfig, AgentType, DockerImage, DockerStatus } from "@devlet/shared";
 import { buildContainerEnv } from "./env.js";
 
+function normalizeArchitecture(value: string | undefined): "amd64" | "arm64" | "unknown" {
+  const normalized = (value ?? "").toLowerCase();
+  if (normalized === "amd64" || normalized === "x86_64") return "amd64";
+  if (normalized === "arm64" || normalized === "aarch64") return "arm64";
+  return "unknown";
+}
+
 // Agent images — configurable via env vars.
 export const AGENT_IMAGE: Record<AgentType, string> = {
   // Base image handles claude-code, codex, opencode, pi, gemini via DEVLET_AGENT_TYPE dispatch
@@ -128,6 +135,7 @@ export async function probeDocker(): Promise<DockerStatus> {
       version: versionInfo.Version,
       containers: { running, stopped, total },
       gpuAvailable: Boolean(info.Runtimes?.nvidia),
+      architecture: normalizeArchitecture(info.Architecture),
     };
   } catch (error) {
     return {

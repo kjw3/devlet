@@ -37,9 +37,23 @@ ARG VERSION=0.1.0
 ARG REPOSITORY_URL=https://github.com/kjw3/devlet
 
 # System dependencies
+# Notes on specific packages:
+#   ripgrep   — claude-code/opencode explicitly prefer `rg` for code search over grep
+#   fd-find   — fast file finder (binary: `fdfind`); claude-code uses it for directory traversal
+#   jq        — agents frequently shell out to `jq` for JSON processing in scripts/tool calls
+#   python3   — many agent helper scripts and tool invocations assume python3 is available
+#   openssh-client — required for git operations over SSH to remote repositories
+#   less      — pager; some TUI tools (including agent subprocesses) fail without it
+#   make      — needed for projects with Makefiles and some npm package postinstall scripts
+#
+#   bubblewrap intentionally omitted: bwrap requires SYS_ADMIN/user-namespaces which are
+#   not available in standard (non-privileged) Docker containers. The --dangerously-bypass
+#   flags already used in the entrypoint are the correct approach for containerized agents.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates bash procps \
-    && rm -rf /var/lib/apt/lists/*
+    ripgrep fd-find jq python3 openssh-client less make \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -s /usr/bin/fdfind /usr/local/bin/fd
 
 # Install ttyd static binary — web terminal (multi-arch: x86_64 / aarch64)
 RUN set -eux; \

@@ -8,6 +8,11 @@ function ConnIcon({ ok, loading }: { ok: boolean; loading?: boolean }) {
   );
 }
 
+function ArchBadge({ arch }: { arch: "amd64" | "arm64" | "unknown" | undefined }) {
+  if (!arch || arch === "unknown") return null;
+  return <span className="text-[9px] text-gray-500 uppercase">{arch}</span>;
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="border-b border-surface-border last:border-0 pb-4 mb-4 last:mb-0 last:pb-0">
@@ -28,6 +33,7 @@ function DockerPanel({ status, loading }: { status?: DockerStatus; loading: bool
           </span>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          <ArchBadge arch={status?.architecture} />
           {status?.gpuAvailable && (
             <span className="text-[9px] text-accent-purple">GPU</span>
           )}
@@ -51,6 +57,15 @@ function DockerPanel({ status, loading }: { status?: DockerStatus; loading: bool
 }
 
 function PortainerPanel({ status, loading }: { status?: PortainerStatus; loading: boolean }) {
+  const utils = trpc.useUtils();
+  const toggleExcluded = trpc.platforms.portainer.setExcluded.useMutation({
+    onSuccess: () => {
+      void utils.platforms.portainer.status.invalidate();
+      void utils.platforms.portainer.exclusions.invalidate();
+      void utils.platforms.proxmox.status.invalidate();
+    },
+  });
+
   return (
     <Section title="Portainer">
       <div className="flex items-center gap-2 mb-2">
@@ -60,17 +75,28 @@ function PortainerPanel({ status, loading }: { status?: PortainerStatus; loading
         </span>
       </div>
       {status?.connected && (
-        <div className="space-y-1">
+        <div className="space-y-0.5">
           {[...status.endpoints].sort((a, b) => a.name.localeCompare(b.name)).map((ep) => (
-            <div key={ep.id} className="flex items-center justify-between text-[11px] py-0.5">
-              <span className="text-gray-300 truncate">{ep.name}</span>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
+            <div key={ep.id} className="group flex items-center justify-between text-[11px] py-0.5">
+              <span className={`truncate min-w-0 ${ep.excluded ? "text-gray-600 line-through" : "text-gray-300"}`}>
+                {ep.name}
+              </span>
+              <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
+                <ArchBadge arch={ep.architecture} />
                 {ep.gpuAvailable && (
                   <span className="text-[9px] text-accent-purple">GPU</span>
                 )}
-                <span className={`label ${ep.status === 1 ? "text-status-running" : "text-status-error"}`}>
-                  {ep.status === 1 ? "online" : "offline"}
-                </span>
+                <button
+                  className="hidden group-hover:inline label text-[9px] text-gray-500 hover:text-gray-300 transition-colors"
+                  disabled={toggleExcluded.isPending}
+                  onClick={() =>
+                    toggleExcluded.mutate({ target: String(ep.id), excluded: !ep.excluded })
+                  }
+                  type="button"
+                >
+                  {ep.excluded ? "include" : "exclude"}
+                </button>
+                <span className={`status-dot flex-shrink-0 ${ep.status === 1 ? "bg-status-running" : "bg-status-error"}`} />
               </div>
             </div>
           ))}
@@ -84,6 +110,14 @@ function PortainerPanel({ status, loading }: { status?: PortainerStatus; loading
 }
 
 function ProxmoxPanel({ status, loading }: { status?: ProxmoxStatus; loading: boolean }) {
+  const utils = trpc.useUtils();
+  const toggleExcluded = trpc.platforms.proxmox.setExcluded.useMutation({
+    onSuccess: () => {
+      void utils.platforms.proxmox.status.invalidate();
+      void utils.platforms.portainer.status.invalidate();
+    },
+  });
+
   return (
     <Section title="Proxmox">
       <div className="flex items-center gap-2 mb-2">
@@ -95,19 +129,34 @@ function ProxmoxPanel({ status, loading }: { status?: ProxmoxStatus; loading: bo
       {!status?.connected && status?.error && (
         <div className="text-[11px] text-gray-600 italic">{status.error}</div>
       )}
-      {status?.connected && [...status.nodes].sort((a, b) => a.name.localeCompare(b.name)).map((node) => (
-        <div key={node.name} className="text-[11px] py-0.5 flex justify-between">
-          <span className="text-gray-300">{node.name}</span>
-          <div className="flex items-center gap-2">
-            {(node.gpuCount ?? 0) > 0 && (
-              <span className="text-[9px] text-accent-purple">{node.gpuCount} GPU</span>
-            )}
-            <span className={node.status === "online" ? "text-status-running" : "text-status-error"}>
-              {node.status}
-            </span>
-          </div>
+      {status?.connected && (
+        <div className="space-y-0.5">
+          {[...status.nodes].sort((a, b) => a.name.localeCompare(b.name)).map((node) => (
+            <div key={node.name} className="group flex items-center justify-between text-[11px] py-0.5">
+              <span className={`truncate min-w-0 ${node.excluded ? "text-gray-600 line-through" : "text-gray-300"}`}>
+                {node.name}
+              </span>
+              <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
+                <ArchBadge arch={node.architecture} />
+                {(node.gpuCount ?? 0) > 0 && (
+                  <span className="text-[9px] text-accent-purple">{node.gpuCount}G</span>
+                )}
+                <button
+                  className="hidden group-hover:inline label text-[9px] text-gray-500 hover:text-gray-300 transition-colors"
+                  disabled={toggleExcluded.isPending}
+                  onClick={() =>
+                    toggleExcluded.mutate({ target: node.name, excluded: !node.excluded })
+                  }
+                  type="button"
+                >
+                  {node.excluded ? "include" : "exclude"}
+                </button>
+                <span className={`status-dot flex-shrink-0 ${node.status === "online" ? "bg-status-running" : "bg-status-error"}`} />
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </Section>
   );
 }

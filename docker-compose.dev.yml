@@ -1,48 +1,22 @@
-version: "3.9"
-
-# Dev stack.
-# Run the app locally with:
-#   pnpm --filter @devlet/server dev   (port 3001)
-#   pnpm --filter @devlet/web dev      (port 3000)
+# Development override for local source builds.
 #
-# Or run everything including app services with:
-#   docker compose -f docker-compose.dev.yml --profile app up
+# Use with the deployment compose file:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# The base compose file uses published ghcr.io images. This override swaps the
+# app services back to local Docker builds for development and debugging.
 
 services:
-
   devlet-server:
-    profiles: [app]
     build:
       context: .
       dockerfile: packages/server/Dockerfile
-    container_name: devlet-server
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:3001:3001"
-    volumes:
-      # Mount Docker socket so the server can manage containers
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Persist agent state outside the container
-      - devlet_state:/root/.devlet
-    env_file: .env
     environment:
       - NODE_ENV=production
-    labels:
-      - "devlet.managed=true"
+    image: devlet/devlet-server:dev
 
   devlet-web:
-    profiles: [app]
     build:
       context: .
       dockerfile: packages/web/Dockerfile
-    container_name: devlet-web
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:3000:80"
-    depends_on:
-      - devlet-server
-    labels:
-      - "devlet.managed=true"
-
-volumes:
-  devlet_state:
+    image: devlet/devlet-web:dev

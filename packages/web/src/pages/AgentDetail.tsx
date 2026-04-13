@@ -54,10 +54,9 @@ function MissionSteps({ agent }: { agent: AgentState }) {
 
 // ─── Web Terminal panel ───────────────────────────────────────────────────────
 
-function TerminalPanel({ env }: { env: Record<string, string> }) {
-  const port  = env["DEVLET_TERMINAL_PORT"];
-  const token = env["DEVLET_TERMINAL_TOKEN"];
-  const url   = `http://localhost:${port}`;
+function TerminalPanel({ access }: { access: NonNullable<AgentState["access"]>["terminal"] }) {
+  if (!access) return null;
+  const { url, username, password: token } = access;
 
   const [tokenVisible, setTokenVisible] = useState(false);
   const [copiedToken, setCopiedToken]   = useState(false);
@@ -80,14 +79,19 @@ function TerminalPanel({ env }: { env: Record<string, string> }) {
             href={url}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={token ? copyToken : undefined}
+            title={token ? "opens tab · copies password" : undefined}
             className="text-[12px] font-mono text-accent-cyan hover:underline"
           >
             {url}
           </a>
+          {copiedToken && (
+            <span className="text-[10px] text-accent-cyan animate-pulse">password copied</span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <span className="label w-16 flex-shrink-0">user</span>
-          <span className="text-[12px] font-mono text-gray-400">devlet</span>
+          <span className="text-[12px] font-mono text-gray-400">{username}</span>
         </div>
         {token && (
           <div className="flex items-center gap-3">
@@ -116,10 +120,9 @@ function TerminalPanel({ env }: { env: Record<string, string> }) {
 
 // ─── OpenClaw Control UI panel ────────────────────────────────────────────────
 
-function OpenClawPanel({ agentId, env }: { agentId: string; env: Record<string, string> }) {
-  const port  = env["OPENCLAW_HOST_PORT"];
-  const token = env["OPENCLAW_GATEWAY_TOKEN"];
-  const url     = `http://localhost:${port}`;
+function OpenClawPanel({ agentId, access }: { agentId: string; access: NonNullable<AgentState["access"]>["openclaw"] }) {
+  if (!access) return null;
+  const { url, token } = access;
   const fullUrl = token ? `${url}?token=${encodeURIComponent(token)}` : url;
 
   const [copiedToken, setCopiedToken] = useState(false);
@@ -166,10 +169,15 @@ function OpenClawPanel({ agentId, env }: { agentId: string; env: Record<string, 
             href={fullUrl}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={token ? copyToken : undefined}
+            title={token ? "opens tab · copies token" : undefined}
             className="text-[12px] font-mono text-accent-cyan hover:underline"
           >
             {url}
           </a>
+          {copiedToken && (
+            <span className="text-[10px] text-accent-cyan animate-pulse">token copied</span>
+          )}
         </div>
 
         {/* Token row */}
@@ -202,9 +210,9 @@ function OpenClawPanel({ agentId, env }: { agentId: string; env: Record<string, 
 
 // ─── Moltis gateway UI panel ─────────────────────────────────────────────────
 
-function MoltisPanel({ agentId, env }: { agentId: string; env: Record<string, string> }) {
-  const port = env["MOLTIS_HOST_PORT"];
-  const url  = `http://localhost:${port}`;
+function MoltisPanel({ agentId, access }: { agentId: string; access: NonNullable<AgentState["access"]>["moltis"] }) {
+  if (!access) return null;
+  const { url } = access;
 
   const { data: health } = trpc.agents.health.useQuery(agentId, {
     refetchInterval: 5_000,
@@ -440,18 +448,18 @@ export function AgentDetail() {
         </div>
 
         {/* Web Terminal panel — all agent types */}
-        {config.env["DEVLET_TERMINAL_PORT"] && (
-          <TerminalPanel env={config.env} />
+        {agent.access?.terminal && (
+          <TerminalPanel access={agent.access.terminal} />
         )}
 
         {/* OpenClaw Control UI panel */}
-        {config.type === "openclaw" && config.env["OPENCLAW_HOST_PORT"] && (
-          <OpenClawPanel agentId={config.id} env={config.env} />
+        {config.type === "openclaw" && agent.access?.openclaw && (
+          <OpenClawPanel agentId={config.id} access={agent.access.openclaw} />
         )}
 
         {/* Moltis gateway UI panel */}
-        {config.type === "moltis" && config.env["MOLTIS_HOST_PORT"] && (
-          <MoltisPanel agentId={config.id} env={config.env} />
+        {config.type === "moltis" && agent.access?.moltis && (
+          <MoltisPanel agentId={config.id} access={agent.access.moltis} />
         )}
 
         {Object.keys(config.env).length > 0 && (

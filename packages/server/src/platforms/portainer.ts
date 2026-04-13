@@ -1,5 +1,6 @@
 import type { PortainerStatus } from "@devlet/shared";
 import { config } from "../config.js";
+import { loadEffectivePlatformExclusions } from "./exclusions.js";
 
 interface PortainerApiStatus {
   Version: string;
@@ -12,12 +13,22 @@ interface PortainerApiEndpoint {
   Type: number;
   Status: number;
   Snapshots?: Array<{
+    RunningContainerCount?: number;
+    TotalMemory?: number;  // bytes
     DockerSnapshotRaw?: {
       Info?: {
         Runtimes?: Record<string, unknown>;
+        Architecture?: string;
       };
     };
   }>;
+}
+
+function normalizeArchitecture(value: string | undefined): "amd64" | "arm64" | "unknown" {
+  const normalized = (value ?? "").toLowerCase();
+  if (normalized === "amd64" || normalized === "x86_64") return "amd64";
+  if (normalized === "arm64" || normalized === "aarch64") return "arm64";
+  return "unknown";
 }
 
 export async function probePortainer(): Promise<PortainerStatus> {
@@ -48,6 +59,8 @@ export async function probePortainer(): Promise<PortainerStatus> {
     const statusData = (await statusRes.json()) as PortainerApiStatus;
     const endpoints = (await epRes.json()) as PortainerApiEndpoint[];
 
+    const exclusions = await loadEffectivePlatformExclusions();
+
     return {
       connected: true,
       version: statusData.Version,
@@ -57,8 +70,21 @@ export async function probePortainer(): Promise<PortainerStatus> {
         url: ep.URL,
         type: ep.Type,
         status: ep.Status,
+        ...(exclusions.portainerEndpoints.includes(String(ep.Id)) ||
+        exclusions.portainerEndpoints.includes(ep.Name)
+          ? { excluded: true }
+          : {}),
         ...(ep.Snapshots?.[0]?.DockerSnapshotRaw?.Info?.Runtimes?.["nvidia"] !== undefined
           ? { gpuAvailable: true }
+          : {}),
+        architecture: normalizeArchitecture(
+          ep.Snapshots?.[0]?.DockerSnapshotRaw?.Info?.Architecture
+        ),
+        ...(ep.Snapshots?.[0]?.RunningContainerCount !== undefined
+          ? { runningContainers: ep.Snapshots[0].RunningContainerCount }
+          : {}),
+        ...(ep.Snapshots?.[0]?.TotalMemory !== undefined
+          ? { totalMemoryMb: Math.round(ep.Snapshots[0].TotalMemory / 1024 / 1024) }
           : {}),
       })),
     };
