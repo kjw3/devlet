@@ -76,6 +76,19 @@ export async function allocateFreeMoltisPort(): Promise<number> {
   throw new Error(`No free port available in range ${start}–${end}`);
 }
 
+/**
+ * Find the first free TCP port in [2222, 3222] on the host.
+ * Used to allocate a unique host-side port for direct SSH access.
+ */
+export async function allocateFreeSshPort(): Promise<number> {
+  const start = 2222;
+  const end   = 3222;
+  for (let port = start; port <= end; port++) {
+    if (await isPortFree(port)) return port;
+  }
+  throw new Error(`No free port available in range ${start}–${end}`);
+}
+
 function createDocker(socketPath?: string): Docker {
   return socketPath ? new Docker({ socketPath }) : new Docker();
 }
@@ -217,6 +230,12 @@ export async function createAgentContainer(config: AgentConfig): Promise<string>
   if (terminalPort) {
     ExposedPorts[`${terminalPort}/tcp`] = {};
     PortBindings[`${terminalPort}/tcp`] = [{ HostIp: "127.0.0.1", HostPort: terminalPort }];
+  }
+
+  const sshPort = config.env["DEVLET_SSH_PORT"];
+  if (sshPort) {
+    ExposedPorts[`${sshPort}/tcp`] = {};
+    PortBindings[`${sshPort}/tcp`] = [{ HostIp: "127.0.0.1", HostPort: sshPort }];
   }
 
   // OpenClaw Control UI (18789)

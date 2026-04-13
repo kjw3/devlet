@@ -90,6 +90,10 @@ export async function allocateFreePortainerMoltisPort(endpointId: number): Promi
   return allocateFreePortainerEndpointPort(endpointId, 13131, 14131);
 }
 
+export async function allocateFreePortainerSshPort(endpointId: number): Promise<number> {
+  return allocateFreePortainerEndpointPort(endpointId, 2222, 3222);
+}
+
 /** Pull image via Portainer's Docker proxy — consumes the streaming progress response. */
 async function pullImage(endpointId: number, image: string): Promise<void> {
   const res = await fetch(
@@ -129,6 +133,12 @@ export async function createPortainerContainer(
   if (terminalPort) {
     ExposedPorts[`${terminalPort}/tcp`] = {};
     PortBindings[`${terminalPort}/tcp`] = [{ HostIp: "0.0.0.0", HostPort: terminalPort }];
+  }
+
+  const sshPort = agentConfig.env["DEVLET_SSH_PORT"];
+  if (sshPort) {
+    ExposedPorts[`${sshPort}/tcp`] = {};
+    PortBindings[`${sshPort}/tcp`] = [{ HostIp: "0.0.0.0", HostPort: sshPort }];
   }
 
   if (agentConfig.type === "openclaw") {

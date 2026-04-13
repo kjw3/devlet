@@ -4,6 +4,7 @@
 set -e
 
 . /usr/local/bin/devlet-terminal
+. /usr/local/bin/devlet-ssh
 
 MISSION="${DEVLET_AGENT_MISSION:-}"
 PERSISTENT="${DEVLET_AGENT_PERSISTENT:-false}"

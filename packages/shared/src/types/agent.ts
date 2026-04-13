@@ -82,6 +82,12 @@ export interface AgentState {
       username: string;
       password?: string;
     };
+    ssh?: {
+      host: string;
+      port: number;
+      username: string;
+      hostKeyFingerprint?: string;
+    };
     openclaw?: {
       url: string;
       token?: string;

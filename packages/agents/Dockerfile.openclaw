@@ -30,6 +30,9 @@ RUN chmod +x /entrypoint.sh
 
 EXPOSE 18789
 
+USER agent
+WORKDIR /workspace
+
 LABEL org.opencontainers.image.title="devlet-agent-openclaw"
 LABEL org.opencontainers.image.description="OpenClaw gateway preconfigured by devlet"
 LABEL org.opencontainers.image.source="${REPOSITORY_URL}"

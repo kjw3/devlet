@@ -4,6 +4,7 @@
 set -e
 
 . /usr/local/bin/devlet-terminal
+. /usr/local/bin/devlet-ssh
 
 AGENT_NAME="${DEVLET_AGENT_NAME:-OpenClaw Agent}"
 AGENT_ROLE="${DEVLET_AGENT_ROLE:-AI assistant}"

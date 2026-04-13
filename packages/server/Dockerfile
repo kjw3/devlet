@@ -8,6 +8,7 @@ ARG VERSION=0.1.0
 ARG REPOSITORY_URL=https://github.com/kjw3/devlet
 
 RUN npm install -g pnpm@${PNPM_VERSION}
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-client && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

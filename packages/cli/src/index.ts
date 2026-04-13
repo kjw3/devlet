@@ -7,6 +7,7 @@ import { statusCommand } from "./commands/status.js";
 import { logsCommand } from "./commands/logs.js";
 import { modelsListCommand, modelsSetDefaultCommand } from "./commands/models.js";
 import { platformsSetExcludedCommand, platformsStatusCommand } from "./commands/platforms.js";
+import { sshCommand } from "./commands/ssh.js";
 
 const program = new Command();
 
@@ -41,6 +42,11 @@ program
   .command("logs <agent-id>")
   .description("Tail agent logs")
   .action(logsCommand);
+
+program
+  .command("ssh <agent-id>")
+  .description("Print the SSH command for an agent")
+  .action(sshCommand);
 
 const modelsCmd = program
   .command("models")

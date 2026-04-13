@@ -20,10 +20,11 @@ import {
 } from "@devlet/shared";
 import { randomUUID, timingSafeEqual } from "crypto";
 import { z } from "zod";
-import { listImages, probeDocker, allocateFreeOpenClawPort, allocateFreeTerminalPort, allocateFreeMoltisPort } from "../platforms/docker.js";
+import { listImages, probeDocker, allocateFreeOpenClawPort, allocateFreeSshPort, allocateFreeTerminalPort, allocateFreeMoltisPort } from "../platforms/docker.js";
 import {
   allocateFreePortainerMoltisPort,
   allocateFreePortainerOpenClawPort,
+  allocateFreePortainerSshPort,
   allocateFreePortainerTerminalPort,
   removePortainerContainerByName,
 } from "../platforms/portainer-deploy.js";
@@ -41,6 +42,11 @@ import {
   resolveAgentAccessHost,
   resolveSurfaceTargetUrl,
 } from "../agent-access.js";
+import {
+  generateAgentSshMaterial,
+  getAgentSshAuthorizedKeys,
+  isAgentSshEnabled,
+} from "../agents/ssh.js";
 import { loadModelDefaults, saveModelDefaults } from "../models/config.js";
 import { config as appConfig } from "../config.js";
 import { listProviders } from "../models/providers.js";
@@ -56,6 +62,12 @@ const AUTH_SCHEME = "Bearer ";
 const INTERNAL_ONLY_ENV_KEYS = new Set([
   "DEVLET_TERMINAL_PORT",
   "DEVLET_TERMINAL_TOKEN",
+  "DEVLET_SSH_PORT",
+  "DEVLET_SSH_USERNAME",
+  "DEVLET_SSH_AUTHORIZED_KEYS_B64",
+  "DEVLET_SSH_HOST_KEY_PRIVATE_B64",
+  "DEVLET_SSH_HOST_KEY_PUBLIC_B64",
+  "DEVLET_SSH_HOST_KEY_FINGERPRINT",
   "OPENCLAW_HOST_PORT",
   "OPENCLAW_ALLOWED_ORIGINS",
   "OPENCLAW_GATEWAY_TOKEN",
@@ -118,11 +130,15 @@ async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
   let access: AgentState["access"];
   const terminalPort = state.config.env["DEVLET_TERMINAL_PORT"];
   const terminalToken = state.config.env["DEVLET_TERMINAL_TOKEN"];
+  const sshPort = state.config.env["DEVLET_SSH_PORT"];
+  const sshUsername = state.config.env["DEVLET_SSH_USERNAME"] ?? "agent";
+  const sshFingerprint = state.config.env["DEVLET_SSH_HOST_KEY_FINGERPRINT"];
   const openclawPort = state.config.env["OPENCLAW_HOST_PORT"];
   const openclawToken = state.config.env["OPENCLAW_GATEWAY_TOKEN"];
   const terminalTarget = await resolveSurfaceTargetUrl(state, "terminal");
   const openclawTarget = await resolveSurfaceTargetUrl(state, "openclaw");
   const moltisTarget = await resolveSurfaceTargetUrl(state, "moltis");
+  const sshHost = sshPort ? await resolveAgentAccessHost(state.config.platform) : null;
 
   if (terminalPort && terminalTarget) {
     access = {
@@ -131,6 +147,18 @@ async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
         url: buildAgentProxyUrl(state.config.id, "terminal", terminalTarget),
         username: "devlet",
         ...(terminalToken ? { password: terminalToken } : {}),
+      },
+    };
+  }
+
+  if (sshPort && sshHost) {
+    access = {
+      ...access,
+      ssh: {
+        host: sshHost,
+        port: Number(sshPort),
+        username: sshUsername,
+        ...(sshFingerprint ? { hostKeyFingerprint: sshFingerprint } : {}),
       },
     };
   }
@@ -258,6 +286,11 @@ async function ensureAgentAccessPorts(config: AgentConfig): Promise<void> {
         await allocateFreePortainerTerminalPort(config.platform.endpointId)
       );
     }
+    if (isAgentSshEnabled() && !config.env["DEVLET_SSH_PORT"]) {
+      config.env["DEVLET_SSH_PORT"] = String(
+        await allocateFreePortainerSshPort(config.platform.endpointId)
+      );
+    }
     if (config.type === "openclaw" && !config.env["OPENCLAW_HOST_PORT"]) {
       config.env["OPENCLAW_HOST_PORT"] = String(
         await allocateFreePortainerOpenClawPort(config.platform.endpointId)
@@ -274,6 +307,9 @@ async function ensureAgentAccessPorts(config: AgentConfig): Promise<void> {
   if (!config.env["DEVLET_TERMINAL_PORT"]) {
     config.env["DEVLET_TERMINAL_PORT"] = String(await allocateFreeTerminalPort());
   }
+  if (isAgentSshEnabled() && !config.env["DEVLET_SSH_PORT"]) {
+    config.env["DEVLET_SSH_PORT"] = String(await allocateFreeSshPort());
+  }
   if (config.type === "openclaw" && !config.env["OPENCLAW_HOST_PORT"]) {
     config.env["OPENCLAW_HOST_PORT"] = String(await allocateFreeOpenClawPort());
   }
@@ -285,6 +321,24 @@ async function ensureAgentAccessPorts(config: AgentConfig): Promise<void> {
 async function ensureAgentAccessEnv(config: AgentConfig): Promise<void> {
   await ensureAgentAccessPorts(config);
 
+  if (isAgentSshEnabled()) {
+    if (!config.env["DEVLET_SSH_HOST_KEY_PRIVATE_B64"] || !config.env["DEVLET_SSH_HOST_KEY_PUBLIC_B64"]) {
+      const sshMaterial = await generateAgentSshMaterial(config.id);
+      config.env["DEVLET_SSH_HOST_KEY_PRIVATE_B64"] = Buffer.from(sshMaterial.privateKey, "utf8").toString("base64");
+      config.env["DEVLET_SSH_HOST_KEY_PUBLIC_B64"] = Buffer.from(sshMaterial.publicKey, "utf8").toString("base64");
+      config.env["DEVLET_SSH_HOST_KEY_FINGERPRINT"] = sshMaterial.fingerprint;
+    }
+    if (!config.env["DEVLET_SSH_AUTHORIZED_KEYS_B64"]) {
+      config.env["DEVLET_SSH_AUTHORIZED_KEYS_B64"] = Buffer.from(
+        getAgentSshAuthorizedKeys(),
+        "utf8"
+      ).toString("base64");
+    }
+    if (!config.env["DEVLET_SSH_USERNAME"]) {
+      config.env["DEVLET_SSH_USERNAME"] = "agent";
+    }
+  }
+
   if (config.type === "openclaw") {
     config.env["OPENCLAW_ALLOWED_ORIGINS"] = new URL(appConfig.publicBaseUrl).origin;
   }
@@ -292,6 +346,7 @@ async function ensureAgentAccessEnv(config: AgentConfig): Promise<void> {
 
 async function refreshAgentAccessPorts(config: AgentConfig): Promise<void> {
   delete config.env["DEVLET_TERMINAL_PORT"];
+  delete config.env["DEVLET_SSH_PORT"];
   if (config.type === "openclaw") delete config.env["OPENCLAW_HOST_PORT"];
   if (config.type === "moltis") delete config.env["MOLTIS_HOST_PORT"];
   if (config.type === "openclaw") delete config.env["OPENCLAW_ALLOWED_ORIGINS"];

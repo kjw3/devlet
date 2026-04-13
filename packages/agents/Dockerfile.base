@@ -43,6 +43,7 @@ ARG REPOSITORY_URL=https://github.com/kjw3/devlet
 #   jq        — agents frequently shell out to `jq` for JSON processing in scripts/tool calls
 #   python3   — many agent helper scripts and tool invocations assume python3 is available
 #   openssh-client — required for git operations over SSH to remote repositories
+#   openssh-server — enables Devlet-managed SSH access for IDEs/debugging
 #   less      — pager; some TUI tools (including agent subprocesses) fail without it
 #   make      — needed for projects with Makefiles and some npm package postinstall scripts
 #
@@ -51,7 +52,7 @@ ARG REPOSITORY_URL=https://github.com/kjw3/devlet
 #   flags already used in the entrypoint are the correct approach for containerized agents.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates bash procps \
-    ripgrep fd-find jq python3 openssh-client less make \
+    ripgrep fd-find jq python3 openssh-client openssh-server less make \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/fdfind /usr/local/bin/fd
 
@@ -83,7 +84,8 @@ ENV DEVLET_AGENT_TYPE=claude-code
 
 COPY packages/agents/entrypoint.base.sh /entrypoint.sh
 COPY packages/agents/devlet-terminal.sh /usr/local/bin/devlet-terminal
-RUN chmod +x /entrypoint.sh /usr/local/bin/devlet-terminal
+COPY packages/agents/devlet-ssh.sh /usr/local/bin/devlet-ssh
+RUN chmod +x /entrypoint.sh /usr/local/bin/devlet-terminal /usr/local/bin/devlet-ssh
 
 # Create non-root agent user — coding agents refuse --dangerously-skip-permissions as root
 RUN useradd --create-home --user-group --shell /bin/bash agent && \

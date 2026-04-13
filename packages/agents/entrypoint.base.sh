@@ -5,6 +5,7 @@ set -e
 
 # Start web terminal background daemon (port/token injected at hire time)
 . /usr/local/bin/devlet-terminal
+. /usr/local/bin/devlet-ssh
 
 AGENT_TYPE="${DEVLET_AGENT_TYPE:-claude-code}"
 MISSION="${DEVLET_AGENT_MISSION:-}"

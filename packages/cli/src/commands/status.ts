@@ -26,5 +26,8 @@ export async function statusCommand(agentId: string) {
   if (error) {
     console.log(`error      ${error}`);
   }
+  if (agent.access?.ssh) {
+    console.log(`ssh        ${agent.access.ssh.username}@${agent.access.ssh.host}:${agent.access.ssh.port}`);
+  }
   console.log();
 }

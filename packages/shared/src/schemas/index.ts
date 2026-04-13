@@ -135,6 +135,12 @@ export const AgentStateSchema = z.object({
       username: z.string().min(1),
       password: z.string().optional(),
     }).optional(),
+    ssh: z.object({
+      host: z.string().min(1),
+      port: z.number().int().positive(),
+      username: z.string().min(1),
+      hostKeyFingerprint: z.string().min(1).optional(),
+    }).optional(),
     openclaw: z.object({
       url: z.string().url(),
       token: z.string().optional(),

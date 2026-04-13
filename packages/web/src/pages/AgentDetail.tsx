@@ -118,6 +118,58 @@ function TerminalPanel({ access }: { access: NonNullable<AgentState["access"]>["
   );
 }
 
+function SshPanel({ access }: { access: NonNullable<AgentState["access"]>["ssh"] }) {
+  if (!access) return null;
+
+  const command = `ssh ${access.username}@${access.host} -p ${access.port}`;
+  const [copiedCommand, setCopiedCommand] = useState(false);
+
+  const copyCommand = useCallback(() => {
+    void navigator.clipboard.writeText(command).then(() => {
+      setCopiedCommand(true);
+      setTimeout(() => setCopiedCommand(false), 1500);
+    });
+  }, [command]);
+
+  return (
+    <div className="card p-4">
+      <div className="label mb-3">ssh</div>
+      <div className="space-y-2.5">
+        <div className="flex items-center gap-3">
+          <span className="label w-24 flex-shrink-0">command</span>
+          <span className="text-[12px] font-mono text-gray-300 flex-1 truncate">{command}</span>
+          <button
+            onClick={copyCommand}
+            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors px-1"
+          >
+            {copiedCommand ? "copied ✓" : "copy"}
+          </button>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="label w-24 flex-shrink-0">host</span>
+          <span className="text-[12px] font-mono text-gray-400">{access.host}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="label w-24 flex-shrink-0">user</span>
+          <span className="text-[12px] font-mono text-gray-400">{access.username}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="label w-24 flex-shrink-0">port</span>
+          <span className="text-[12px] font-mono text-gray-400">{access.port}</span>
+        </div>
+        {access.hostKeyFingerprint && (
+          <div className="flex items-start gap-3">
+            <span className="label w-24 flex-shrink-0 pt-0.5">host key</span>
+            <span className="text-[12px] font-mono text-gray-400 break-all">
+              {access.hostKeyFingerprint}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── OpenClaw Control UI panel ────────────────────────────────────────────────
 
 function OpenClawPanel({ agentId, access }: { agentId: string; access: NonNullable<AgentState["access"]>["openclaw"] }) {
@@ -455,6 +507,10 @@ export function AgentDetail() {
         {/* Web Terminal panel — all agent types */}
         {agent.access?.terminal && (
           <TerminalPanel access={agent.access.terminal} />
+        )}
+
+        {agent.access?.ssh && (
+          <SshPanel access={agent.access.ssh} />
         )}
 
         {/* OpenClaw Control UI panel */}
