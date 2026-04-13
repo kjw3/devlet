@@ -164,6 +164,25 @@ export async function listImages(): Promise<DockerImage[]> {
 }
 
 async function ensureImage(docker: Docker, image: string): Promise<void> {
+  const isDigestPinned = image.includes("@sha256:");
+  const lastColon = image.lastIndexOf(":");
+  const lastSlash = image.lastIndexOf("/");
+  const tag = lastColon > lastSlash ? image.slice(lastColon + 1) : "";
+  const shouldRefresh = !isDigestPinned && (tag === "" || tag === "latest");
+
+  if (shouldRefresh) {
+    await new Promise<void>((resolve, reject) => {
+      docker.pull(image, (err: Error | null, stream: NodeJS.ReadableStream) => {
+        if (err) return reject(err);
+        docker.modem.followProgress(stream, (err: Error | null) => {
+          if (err) return reject(err);
+          resolve();
+        });
+      });
+    });
+    return;
+  }
+
   try {
     await docker.getImage(image).inspect();
   } catch {
