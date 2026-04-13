@@ -182,5 +182,27 @@ fs.writeFileSync('/workspace/AGENTS.md', [
 console.log('[devlet] Workspace bootstrap files written (IDENTITY.md, SOUL.md, AGENTS.md)');
 JSEOF
 
-# ─── Start OpenClaw gateway (foreground, becomes PID 1) ──────────────────────
-exec openclaw gateway --allow-unconfigured
+OPENCLAW_AUTO_PAIR="${DEVLET_OPENCLAW_AUTO_PAIR:-false}"
+OPENCLAW_GATEWAY_URL="ws://127.0.0.1:18789"
+
+auto_pair_loop() {
+  while kill -0 "$1" 2>/dev/null; do
+    if openclaw devices approve --latest \
+      --url "$OPENCLAW_GATEWAY_URL" \
+      --token "$OPENCLAW_GATEWAY_TOKEN" >/tmp/openclaw-auto-pair.log 2>&1; then
+      echo "[devlet] OpenClaw auto-paired latest pending device"
+    fi
+    sleep 2
+  done
+}
+
+# ─── Start OpenClaw gateway ───────────────────────────────────────────────────
+openclaw gateway --allow-unconfigured &
+GATEWAY_PID=$!
+
+if [[ "$OPENCLAW_AUTO_PAIR" =~ ^(1|true|yes|on)$ ]]; then
+  echo "[devlet] OpenClaw auto-pair enabled"
+  auto_pair_loop "$GATEWAY_PID" &
+fi
+
+wait "$GATEWAY_PID"
