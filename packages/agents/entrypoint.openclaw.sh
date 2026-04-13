@@ -37,6 +37,10 @@ const allowedOrigins = (process.env.OPENCLAW_ALLOWED_ORIGINS || '')
   .split(',')
   .map((value) => value.trim())
   .filter(Boolean);
+const trustedProxies = (process.env.OPENCLAW_TRUSTED_PROXIES || '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
 
 function buildModelRegistry() {
   if (provider === 'nvidia' && process.env.NVIDIA_API_KEY) {
@@ -106,6 +110,7 @@ const config = {
           },
         }
       : {}),
+    ...(trustedProxies.length > 0 ? { trustedProxies } : {}),
   },
   ui: {
     assistant: { name },

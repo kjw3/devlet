@@ -31,6 +31,12 @@ type ProxyResolution =
   | { ok: true; targetUrl: string; rewrittenPath: string }
   | { ok: false; statusCode: number; message: string };
 
+function toWebSocketTarget(targetUrl: string): string {
+  const target = new URL(targetUrl);
+  target.protocol = target.protocol === "https:" ? "wss:" : "ws:";
+  return target.toString();
+}
+
 function parseSurface(value: string): AgentAccessSurface | null {
   return value === "terminal" || value === "openclaw" || value === "moltis" ? value : null;
 }
@@ -173,7 +179,7 @@ server.server.on("upgrade", async (request, socket, head) => {
   }
 
   request.url = resolution.rewrittenPath;
-  agentUiProxy.ws(request, socket, head, { target: resolution.targetUrl });
+  agentUiProxy.ws(request, socket, head, { target: toWebSocketTarget(resolution.targetUrl) });
 });
 
 await server.listen({

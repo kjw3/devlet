@@ -341,6 +341,14 @@ async function ensureAgentAccessEnv(config: AgentConfig): Promise<void> {
 
   if (config.type === "openclaw") {
     config.env["OPENCLAW_ALLOWED_ORIGINS"] = new URL(appConfig.publicBaseUrl).origin;
+    if (!config.env["OPENCLAW_TRUSTED_PROXIES"]) {
+      config.env["OPENCLAW_TRUSTED_PROXIES"] = [
+        "127.0.0.1/32",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+      ].join(",");
+    }
   }
 }
 
@@ -349,7 +357,10 @@ async function refreshAgentAccessPorts(config: AgentConfig): Promise<void> {
   delete config.env["DEVLET_SSH_PORT"];
   if (config.type === "openclaw") delete config.env["OPENCLAW_HOST_PORT"];
   if (config.type === "moltis") delete config.env["MOLTIS_HOST_PORT"];
-  if (config.type === "openclaw") delete config.env["OPENCLAW_ALLOWED_ORIGINS"];
+  if (config.type === "openclaw") {
+    delete config.env["OPENCLAW_ALLOWED_ORIGINS"];
+    delete config.env["OPENCLAW_TRUSTED_PROXIES"];
+  }
   await ensureAgentAccessEnv(config);
 }
 
