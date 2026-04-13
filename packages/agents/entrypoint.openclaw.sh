@@ -41,6 +41,7 @@ const trustedProxies = (process.env.OPENCLAW_TRUSTED_PROXIES || '')
   .split(',')
   .map((value) => value.trim())
   .filter(Boolean);
+const enableInsecureControlUiAuth = /^(1|true|yes|on)$/i.test(process.env.DEVLET_OPENCLAW_AUTO_PAIR || '');
 
 function buildModelRegistry() {
   if (provider === 'nvidia' && process.env.NVIDIA_API_KEY) {
@@ -107,6 +108,19 @@ const config = {
       ? {
           controlUi: {
             allowedOrigins,
+            ...(enableInsecureControlUiAuth
+              ? {
+                  allowInsecureAuth: true,
+                  dangerouslyDisableDeviceAuth: true,
+                }
+              : {}),
+          },
+        }
+      : enableInsecureControlUiAuth
+      ? {
+          controlUi: {
+            allowInsecureAuth: true,
+            dangerouslyDisableDeviceAuth: true,
           },
         }
       : {}),
