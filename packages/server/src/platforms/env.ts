@@ -33,6 +33,21 @@ const FORWARDED_KEYS = [
   "TAVILY_API_KEY",
 ] as const;
 
+const OPENCLAW_PROVIDER_KEYS: Record<string, readonly string[]> = {
+  anthropic: ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"],
+  openai: ["OPENAI_API_KEY", "OPENAI_BASE_URL"],
+  gemini: ["GEMINI_API_KEY"],
+  openrouter: ["OPENROUTER_API_KEY"],
+  litellm: ["LITELLM_BASE_URL", "LITELLM_API_KEY"],
+  nvidia: ["NVIDIA_API_KEY"],
+  groq: ["GROQ_API_KEY"],
+} as const;
+
+const SHARED_AGENT_TOOL_KEYS = [
+  "FIRECRAWL_API_KEY",
+  "TAVILY_API_KEY",
+] as const;
+
 // Provider priority order — matches the entrypoint detection logic.
 const PROVIDER_PRIORITY = ["litellm", "openrouter", "anthropic", "openai", "gemini", "nvidia"] as const;
 type Provider = typeof PROVIDER_PRIORITY[number];
@@ -59,12 +74,9 @@ export async function buildContainerEnv(config: AgentConfig): Promise<string[]> 
       : []),
   ];
 
-  // 2. Platform-level API keys — only forward keys that are actually set
-  const platformKeys = FORWARDED_KEYS
-    .filter((key) => process.env[key])
-    .map((key) => `${key}=${process.env[key]}`);
+  let resolvedProvider = config.env["DEVLET_AGENT_PROVIDER"] ?? null;
 
-  // 3. Per-agent-type provider + model from ~/.devlet/agent-type-config.yaml
+  // 2. Per-agent-type provider + model from ~/.devlet/agent-type-config.yaml
   //    Only injected when not already set by per-agent env overrides.
   const typeConfigVars: string[] = [];
   if (!config.env["DEVLET_AGENT_PROVIDER"] && !config.env["DEVLET_AGENT_MODEL"]) {
@@ -72,6 +84,7 @@ export async function buildContainerEnv(config: AgentConfig): Promise<string[]> 
       const typeConfig = await loadAgentTypeConfig();
       const agentDefaults = typeConfig.configs[config.type];
       if (agentDefaults) {
+        resolvedProvider = agentDefaults.provider;
         typeConfigVars.push(`DEVLET_AGENT_PROVIDER=${agentDefaults.provider}`);
         if (agentDefaults.model) {
           typeConfigVars.push(`DEVLET_AGENT_MODEL=${agentDefaults.model}`);
@@ -88,6 +101,17 @@ export async function buildContainerEnv(config: AgentConfig): Promise<string[]> 
       // Non-fatal
     }
   }
+
+  // 3. Platform-level API keys — only forward keys that are actually set.
+  // OpenClaw is sensitive to multiple provider credentials being present at once,
+  // so only pass the selected provider's credentials plus shared tool keys.
+  const forwardedKeys =
+    config.type === "openclaw" && resolvedProvider
+      ? [...(OPENCLAW_PROVIDER_KEYS[resolvedProvider] ?? []), ...SHARED_AGENT_TOOL_KEYS]
+      : [...FORWARDED_KEYS];
+  const platformKeys = [...new Set(forwardedKeys)]
+    .filter((key) => process.env[key])
+    .map((key) => `${key}=${process.env[key]}`);
 
   // 4. DEVLET_DEFAULT_MODEL fallback — skipped when a type-config model is already set
   const defaultModelVars: string[] = [];

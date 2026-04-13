@@ -32,6 +32,62 @@ const provider = process.env.DEVLET_AGENT_PROVIDER || 'anthropic';
 const model    = process.env.DEVLET_AGENT_MODEL    || 'claude-sonnet-4-6';
 const name     = process.env.DEVLET_AGENT_NAME     || 'OpenClaw Agent';
 const token    = process.env.OPENCLAW_GATEWAY_TOKEN;
+const allowedOrigins = (process.env.OPENCLAW_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
+
+function buildModelRegistry() {
+  if (provider === 'nvidia' && process.env.NVIDIA_API_KEY) {
+    return {
+      mode: 'merge',
+      providers: {
+        nvidia: {
+          baseUrl: 'https://integrate.api.nvidia.com/v1',
+          apiKey: process.env.NVIDIA_API_KEY,
+          api: 'openai-completions',
+          models: [
+            {
+              id: model,
+              name: model,
+              input: ['text', 'image'],
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+              contextWindow: 200000,
+              maxTokens: 8192,
+            },
+          ],
+        },
+      },
+    };
+  }
+
+  if (provider === 'litellm' && process.env.LITELLM_BASE_URL && process.env.LITELLM_API_KEY) {
+    return {
+      mode: 'merge',
+      providers: {
+        litellm: {
+          baseUrl: `${process.env.LITELLM_BASE_URL}/v1`,
+          apiKey: process.env.LITELLM_API_KEY,
+          api: 'openai-completions',
+          models: [
+            {
+              id: model,
+              name: model,
+              input: ['text', 'image'],
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+              contextWindow: 200000,
+              maxTokens: 8192,
+            },
+          ],
+        },
+      },
+    };
+  }
+
+  return undefined;
+}
+
+const models = buildModelRegistry();
 
 const config = {
   gateway: {
@@ -42,10 +98,18 @@ const config = {
       mode: 'token',
       token,
     },
+    ...(allowedOrigins.length > 0
+      ? {
+          controlUi: {
+            allowedOrigins,
+          },
+        }
+      : {}),
   },
   ui: {
     assistant: { name },
   },
+  ...(models ? { models } : {}),
   agents: {
     defaults: {
       workspace: '/workspace',

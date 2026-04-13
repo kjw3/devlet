@@ -51,6 +51,7 @@ const INTERNAL_ONLY_ENV_KEYS = new Set([
   "DEVLET_TERMINAL_PORT",
   "DEVLET_TERMINAL_TOKEN",
   "OPENCLAW_HOST_PORT",
+  "OPENCLAW_ALLOWED_ORIGINS",
   "OPENCLAW_GATEWAY_TOKEN",
   "MOLTIS_HOST_PORT",
   "MOLTIS_PASSWORD",
@@ -79,6 +80,13 @@ async function getPortainerEndpointHost(endpointId: number): Promise<string> {
   } catch {
     return "localhost";
   }
+}
+
+async function resolveAgentAccessHost(platform: PlatformTarget): Promise<string> {
+  if (platform.type === "portainer") {
+    return getPortainerEndpointHost(platform.endpointId);
+  }
+  return "localhost";
 }
 
 function authenticateRequest(authHeader?: string): void {
@@ -134,10 +142,7 @@ async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
   const openclawToken = state.config.env["OPENCLAW_GATEWAY_TOKEN"];
   const moltisPort = state.config.env["MOLTIS_HOST_PORT"];
 
-  let host = "localhost";
-  if (state.config.platform.type === "portainer") {
-    host = await getPortainerEndpointHost(state.config.platform.endpointId);
-  }
+  const host = await resolveAgentAccessHost(state.config.platform);
 
   if (terminalPort) {
     access = {
@@ -297,11 +302,25 @@ async function ensureAgentAccessPorts(config: AgentConfig): Promise<void> {
   }
 }
 
+async function ensureAgentAccessEnv(config: AgentConfig): Promise<void> {
+  await ensureAgentAccessPorts(config);
+
+  if (config.type === "openclaw") {
+    const host = await resolveAgentAccessHost(config.platform);
+    const port = config.env["OPENCLAW_HOST_PORT"] ?? "18789";
+    config.env["OPENCLAW_ALLOWED_ORIGINS"] = [
+      `http://${host}:${port}`,
+      ...(host === "localhost" ? [`http://127.0.0.1:${port}`] : []),
+    ].join(",");
+  }
+}
+
 async function refreshAgentAccessPorts(config: AgentConfig): Promise<void> {
   delete config.env["DEVLET_TERMINAL_PORT"];
   if (config.type === "openclaw") delete config.env["OPENCLAW_HOST_PORT"];
   if (config.type === "moltis") delete config.env["MOLTIS_HOST_PORT"];
-  await ensureAgentAccessPorts(config);
+  if (config.type === "openclaw") delete config.env["OPENCLAW_ALLOWED_ORIGINS"];
+  await ensureAgentAccessEnv(config);
 }
 
 export const appRouter = t.router({
@@ -424,7 +443,7 @@ export const appRouter = t.router({
           createdAt: now,
           lastActiveAt: now,
         };
-        await ensureAgentAccessPorts(config);
+        await ensureAgentAccessEnv(config);
 
         const state: AgentState = {
           config,
