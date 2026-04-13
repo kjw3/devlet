@@ -1,0 +1,70 @@
+# ── devlet/agent-moltis ───────────────────────────────────────────────────────
+# Moltis persistent AI agent gateway layered onto devlet/agent-base.
+#
+# Strategy: copy the pre-built moltis binary + WASM assets from the official
+# ghcr.io/moltis-org/moltis image (mirrors their Dockerfile's runtime stage)
+# and install the runtime deps they specify, then add devlet's coding CLIs via
+# the base image. No Rust toolchain required.
+#
+# Required env at runtime:
+#   MOLTIS_PASSWORD       - API password for Moltis gateway
+#   MOLTIS_PROVIDER       - AI provider (anthropic | openai | google | groq)
+#   MOLTIS_API_KEY        - API key for the chosen provider
+# Optional:
+#   MOLTIS_PORT           - port to listen on (default: 13131)
+#   ANTHROPIC_API_KEY     - for base agents (claude-code / gemini via openai compat)
+#   OPENAI_API_KEY        - for codex
+#   GEMINI_API_KEY        - for gemini
+#   DEVLET_AGENT_MISSION  - initial task to submit via GraphQL on startup
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Pull the official binary + WASM assets
+ARG MOLTIS_UPSTREAM_IMAGE=ghcr.io/moltis-org/moltis:20260413.01
+ARG BASE_AGENT_IMAGE=devlet/agent-base:latest
+FROM ${MOLTIS_UPSTREAM_IMAGE} AS moltis-upstream
+
+# Build on top of our base (node:22-slim + all coding CLIs)
+FROM ${BASE_AGENT_IMAGE}
+
+ARG VCS_REF=unknown
+ARG BUILD_DATE=unknown
+ARG VERSION=0.1.0
+ARG REPOSITORY_URL=https://github.com/kjw3/devlet
+
+# Root needed for apt-get and binary copy; agent-base sets USER agent
+USER root
+
+# Runtime deps from the official moltis Dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium libgomp1 sudo tmux gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy moltis binary and WASM assets from the official image
+COPY --from=moltis-upstream /usr/local/bin/moltis /usr/local/bin/moltis
+COPY --from=moltis-upstream /usr/share/moltis    /usr/share/moltis
+
+# Ensure agent user owns its home config dir for moltis config at runtime
+RUN mkdir -p /home/agent/.moltis && chown -R agent:agent /home/agent/.moltis
+
+ENV MOLTIS_PORT=13131
+
+COPY packages/agents/entrypoint.moltis.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+USER agent
+WORKDIR /workspace
+
+# Moltis gateway (HTTPS) + HTTP port for CA cert download
+# Matches MOLTIS_PORT default (13131); moltis uses PORT and PORT+1 for the CA cert server.
+EXPOSE 13131 13132
+
+LABEL org.opencontainers.image.title="devlet-agent-moltis"
+LABEL org.opencontainers.image.description="Moltis persistent AI agent gateway with devlet base coding agents"
+LABEL org.opencontainers.image.source="${REPOSITORY_URL}"
+LABEL org.opencontainers.image.revision="${VCS_REF}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL devlet.agent.type="moltis"
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD []

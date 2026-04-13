@@ -5,6 +5,7 @@ import type {
   PlacementDecision,
   PlatformScore,
   PlatformTarget,
+  SchedulerContext,
 } from "@devlet/shared";
 import {
   MOCK_DOCKER_STATUS,
@@ -79,20 +80,25 @@ interface PlacementPreviewProps {
   onPlacement: (p: PlatformTarget | undefined) => void;
   /** Currently selected override, if any */
   override?: PlatformTarget;
+  /** Live platform status from the server — falls back to mocks when not available */
+  context?: Partial<SchedulerContext>;
 }
 
 export function PlacementPreview({
   requirements,
   onPlacement,
   override,
+  context,
 }: PlacementPreviewProps) {
   const [showOverrides, setShowOverrides] = useState(false);
 
-  const decision: PlacementDecision = scheduleAgent(requirements, {
-    docker: MOCK_DOCKER_STATUS,
-    portainer: MOCK_PORTAINER_STATUS,
-    proxmox: MOCK_PROXMOX_STATUS,
-  });
+  const schedulerContext: SchedulerContext = {
+    docker: context?.docker ?? MOCK_DOCKER_STATUS,
+    portainer: context?.portainer ?? MOCK_PORTAINER_STATUS,
+    proxmox: context?.proxmox ?? MOCK_PROXMOX_STATUS,
+  };
+
+  const decision: PlacementDecision = scheduleAgent(requirements, schedulerContext);
 
   const effective = override ?? decision.placement;
   const effectiveLabel = effective ? platformLabel(effective) : "none";

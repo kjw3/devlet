@@ -5,6 +5,7 @@ import { hireCommand } from "./commands/hire.js";
 import { fireCommand } from "./commands/fire.js";
 import { statusCommand } from "./commands/status.js";
 import { logsCommand } from "./commands/logs.js";
+import { modelsListCommand, modelsSetDefaultCommand } from "./commands/models.js";
 
 const program = new Command();
 
@@ -39,5 +40,19 @@ program
   .command("logs <agent-id>")
   .description("Tail agent logs")
   .action(logsCommand);
+
+const modelsCmd = program
+  .command("models")
+  .description("Manage default model configuration");
+
+modelsCmd
+  .command("list")
+  .description("List providers and their configured default models")
+  .action(modelsListCommand);
+
+modelsCmd
+  .command("set-default <provider> <model>")
+  .description("Set the default model for a provider (e.g. anthropic claude-sonnet-4-6)")
+  .action((provider: string, model: string) => modelsSetDefaultCommand(provider, model));
 
 program.parse();

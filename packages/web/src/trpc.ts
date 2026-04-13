@@ -5,6 +5,15 @@ import React from "react";
 import type { AppRouter } from "@devlet/shared";
 
 export const trpc = createTRPCReact<AppRouter>();
+export const DEVLET_AUTH_STORAGE_KEY = "devlet.auth.token";
+
+function getStoredAuthToken(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return window.localStorage.getItem(DEVLET_AUTH_STORAGE_KEY) ?? "";
+}
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,6 +28,10 @@ const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
       url: "/trpc",
+      headers() {
+        const token = getStoredAuthToken();
+        return token ? { authorization: `Bearer ${token}` } : {};
+      },
     }),
   ],
 });

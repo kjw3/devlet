@@ -4,9 +4,14 @@ import type { GpuRequirements } from "./scheduler.js";
 export type AgentType =
   | "claude-code"
   | "codex"
+  | "opencode"
+  | "pi"
+  | "gemini"
   | "openclaw"
-  | "nemoclaw"
-  | "hermes";
+  | "nanoclaw"
+  | "hermes"
+  | "moltis"
+  | "nemoclaw"; // future: NVIDIA NeMo — Proxmox GPU VM only
 
 export type AgentStatus =
   | "provisioning"

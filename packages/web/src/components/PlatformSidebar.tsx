@@ -1,11 +1,10 @@
 import type { DockerStatus, PortainerStatus, ProxmoxStatus } from "@devlet/shared";
-import { MOCK_DOCKER_STATUS, MOCK_PORTAINER_STATUS, MOCK_PROXMOX_STATUS } from "../mocks/platforms.js";
+import { trpc } from "../trpc.js";
 
-function ConnIcon({ ok }: { ok: boolean }) {
+function ConnIcon({ ok, loading }: { ok: boolean; loading?: boolean }) {
+  if (loading) return <span className="status-dot bg-gray-700 animate-pulse" />;
   return (
-    <span
-      className={`status-dot ${ok ? "bg-status-running" : "bg-status-error animate-pulse"}`}
-    />
+    <span className={`status-dot ${ok ? "bg-status-running" : "bg-status-error animate-pulse"}`} />
   );
 }
 
@@ -18,85 +17,95 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function DockerPanel({ status }: { status: DockerStatus }) {
+function DockerPanel({ status, loading }: { status?: DockerStatus; loading: boolean }) {
   return (
     <Section title="Docker">
-      <div className="flex items-center gap-2 mb-2">
-        <ConnIcon ok={status.connected} />
-        <span className="text-[12px] text-gray-300">
-          {status.connected ? `v${status.version}` : "disconnected"}
-        </span>
-      </div>
-      {status.connected && (
-        <div className="grid grid-cols-3 gap-1 text-center">
-          {[
-            { label: "running", val: status.containers.running, color: "text-status-running" },
-            { label: "stopped", val: status.containers.stopped, color: "text-gray-500" },
-            { label: "total", val: status.containers.total, color: "text-gray-400" },
-          ].map(({ label, val, color }) => (
-            <div key={label} className="bg-surface-overlay rounded-sm py-1.5">
-              <div className={`text-sm font-semibold ${color}`}>{val}</div>
-              <div className="label">{label}</div>
-            </div>
-          ))}
+      <div className="flex items-center justify-between text-[11px] py-0.5">
+        <div className="flex items-center gap-2">
+          <ConnIcon ok={status?.connected ?? false} loading={loading} />
+          <span className="text-gray-300">
+            {loading ? "..." : "local"}
+          </span>
         </div>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {status?.gpuAvailable && (
+            <span className="text-[9px] text-accent-purple">GPU</span>
+          )}
+          {!loading && (
+            <span className={`label ${status?.connected ? "text-status-running" : "text-status-error"}`}>
+              {status?.connected
+                ? `${status.containers.running}↑ ${status.containers.stopped}↓`
+                : "offline"}
+            </span>
+          )}
+        </div>
+      </div>
+      {status?.connected && (
+        <div className="text-[10px] text-gray-600 pl-5 mt-0.5">v{status.version}</div>
       )}
-      {status.error && (
-        <div className="text-[11px] text-accent-red mt-1">{status.error}</div>
+      {status?.error && (
+        <div className="text-[11px] text-gray-600 italic mt-1">{status.error}</div>
       )}
     </Section>
   );
 }
 
-function PortainerPanel({ status }: { status: PortainerStatus }) {
+function PortainerPanel({ status, loading }: { status?: PortainerStatus; loading: boolean }) {
   return (
     <Section title="Portainer">
       <div className="flex items-center gap-2 mb-2">
-        <ConnIcon ok={status.connected} />
+        <ConnIcon ok={status?.connected ?? false} loading={loading} />
         <span className="text-[12px] text-gray-300">
-          {status.connected ? `v${status.version}` : "disconnected"}
+          {loading ? "..." : status?.connected ? `v${status.version}` : "disconnected"}
         </span>
       </div>
-      {status.connected && (
+      {status?.connected && (
         <div className="space-y-1">
-          {status.endpoints.map((ep) => (
-            <div
-              key={ep.id}
-              className="flex items-center justify-between text-[11px] py-0.5"
-            >
-              <span className="text-gray-300">{ep.name}</span>
-              <span className={`label ${ep.status === 1 ? "text-status-running" : "text-status-error"}`}>
-                {ep.status === 1 ? "online" : "offline"}
-              </span>
+          {[...status.endpoints].sort((a, b) => a.name.localeCompare(b.name)).map((ep) => (
+            <div key={ep.id} className="flex items-center justify-between text-[11px] py-0.5">
+              <span className="text-gray-300 truncate">{ep.name}</span>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {ep.gpuAvailable && (
+                  <span className="text-[9px] text-accent-purple">GPU</span>
+                )}
+                <span className={`label ${ep.status === 1 ? "text-status-running" : "text-status-error"}`}>
+                  {ep.status === 1 ? "online" : "offline"}
+                </span>
+              </div>
             </div>
           ))}
         </div>
       )}
-      {status.error && (
-        <div className="text-[11px] text-accent-red mt-1">{status.error}</div>
+      {status?.error && (
+        <div className="text-[11px] text-gray-600 italic mt-1">{status.error}</div>
       )}
     </Section>
   );
 }
 
-function ProxmoxPanel({ status }: { status: ProxmoxStatus }) {
+function ProxmoxPanel({ status, loading }: { status?: ProxmoxStatus; loading: boolean }) {
   return (
     <Section title="Proxmox">
       <div className="flex items-center gap-2 mb-2">
-        <ConnIcon ok={status.connected} />
+        <ConnIcon ok={status?.connected ?? false} loading={loading} />
         <span className="text-[12px] text-gray-300">
-          {status.connected ? `v${status.version}` : "disconnected"}
+          {loading ? "..." : status?.connected ? `v${status.version}` : "disconnected"}
         </span>
       </div>
-      {!status.connected && status.error && (
-        <div className="text-[11px] text-gray-500 italic">{status.error}</div>
+      {!status?.connected && status?.error && (
+        <div className="text-[11px] text-gray-600 italic">{status.error}</div>
       )}
-      {status.connected && status.nodes.map((node) => (
+      {status?.connected && [...status.nodes].sort((a, b) => a.name.localeCompare(b.name)).map((node) => (
         <div key={node.name} className="text-[11px] py-0.5 flex justify-between">
           <span className="text-gray-300">{node.name}</span>
-          <span className={node.status === "online" ? "text-status-running" : "text-status-error"}>
-            {node.status}
-          </span>
+          <div className="flex items-center gap-2">
+            {(node.gpuCount ?? 0) > 0 && (
+              <span className="text-[9px] text-accent-purple">{node.gpuCount} GPU</span>
+            )}
+            <span className={node.status === "online" ? "text-status-running" : "text-status-error"}>
+              {node.status}
+            </span>
+          </div>
         </div>
       ))}
     </Section>
@@ -104,17 +113,25 @@ function ProxmoxPanel({ status }: { status: ProxmoxStatus }) {
 }
 
 export function PlatformSidebar() {
-  // TODO: replace with real tRPC queries
-  const docker = MOCK_DOCKER_STATUS;
-  const portainer = MOCK_PORTAINER_STATUS;
-  const proxmox = MOCK_PROXMOX_STATUS;
+  const { data: docker, isLoading: dockerLoading } = trpc.platforms.docker.status.useQuery(
+    undefined,
+    { refetchInterval: 10_000 }
+  );
+  const { data: portainer, isLoading: portainerLoading } = trpc.platforms.portainer.status.useQuery(
+    undefined,
+    { refetchInterval: 10_000 }
+  );
+  const { data: proxmox, isLoading: proxmoxLoading } = trpc.platforms.proxmox.status.useQuery(
+    undefined,
+    { refetchInterval: 10_000 }
+  );
 
   return (
     <aside className="w-52 flex-shrink-0 border-l border-surface-border bg-surface p-4 overflow-y-auto">
       <div className="label mb-4 text-gray-600">platforms</div>
-      <DockerPanel status={docker} />
-      <PortainerPanel status={portainer} />
-      <ProxmoxPanel status={proxmox} />
+      <DockerPanel loading={dockerLoading} {...(docker ? { status: docker } : {})} />
+      <PortainerPanel loading={portainerLoading} {...(portainer ? { status: portainer } : {})} />
+      <ProxmoxPanel loading={proxmoxLoading} {...(proxmox ? { status: proxmox } : {})} />
     </aside>
   );
 }

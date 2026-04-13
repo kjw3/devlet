@@ -1,5 +1,12 @@
 import { useEffect, useRef } from "react";
 
+// Strips ANSI SGR escape sequences (colors, bold, dim, etc.) that container
+// logs often contain. Matches ESC [ ... <final-byte> patterns.
+const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
+function stripAnsi(line: string): string {
+  return line.replace(ANSI_RE, "");
+}
+
 interface LogViewerProps {
   logs: string[];
   className?: string;
@@ -24,7 +31,7 @@ export function LogViewer({ logs, className = "", follow = true }: LogViewerProp
       ) : (
         logs.map((line, i) => (
           <div key={i} className="text-gray-300 whitespace-pre-wrap break-all">
-            {line}
+            {stripAnsi(line)}
           </div>
         ))
       )}

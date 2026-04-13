@@ -5,7 +5,10 @@
     "outDir": "dist",
     "rootDir": "src",
     "moduleResolution": "Node16",
-    "module": "Node16"
+    "module": "Node16",
+    // Zod-parsed types carry `| undefined` on optional fields which conflicts
+    // with exactOptionalPropertyTypes. Relax for this server-only package.
+    "exactOptionalPropertyTypes": false
   },
   "include": ["src"]
 }

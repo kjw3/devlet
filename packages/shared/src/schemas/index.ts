@@ -61,9 +61,14 @@ export const GpuRequirementsSchema = z.object({
 export const AgentTypeSchema = z.enum([
   "claude-code",
   "codex",
+  "opencode",
+  "pi",
+  "gemini",
   "openclaw",
-  "nemoclaw",
+  "nanoclaw",
   "hermes",
+  "moltis",
+  "nemoclaw",
 ]);
 
 export const AgentConfigSchema = z.object({
@@ -131,4 +136,33 @@ export const AgentStateSchema = z.object({
 export const UpdateMissionInputSchema = z.object({
   agentId: z.string().min(1),
   mission: MissionSchema,
+});
+
+// ─── Model Configuration ──────────────────────────────────────────────────────
+
+export const ProviderNameSchema = z.enum([
+  "litellm",
+  "openrouter",
+  "anthropic",
+  "openai",
+  "gemini",
+  "nvidia",
+]);
+
+export const ModelDefaultsSchema = z.object({
+  defaults: z.record(ProviderNameSchema, z.string()).default({}),
+});
+
+export const SetDefaultInputSchema = z.object({
+  provider: ProviderNameSchema,
+  modelId: z.string().min(1),
+});
+
+// ─── Agent Type Configuration ─────────────────────────────────────────────────
+
+export const SetAgentTypeConfigInputSchema = z.object({
+  agentType: AgentTypeSchema,
+  provider: ProviderNameSchema,
+  /** Omit to use the provider's default from the Providers page. */
+  model: z.string().min(1).optional(),
 });

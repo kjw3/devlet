@@ -73,12 +73,12 @@ export async function hireCommand() {
         steps: [],
         onComplete: onComplete as "idle" | "terminate" | "report",
       },
-      platform:
+      platformOverride:
         platform === "docker"
-          ? { type: "docker" }
+          ? { type: "docker" as const }
           : platform === "portainer"
-          ? { type: "portainer", endpointId: 1 }
-          : { type: "proxmox", node: "pve-01", vmType: "lxc" },
+          ? { type: "portainer" as const, endpointId: 1 }
+          : { type: "proxmox" as const, node: "pve-01", vmType: "lxc" as const },
       resources: DEFAULT_RESOURCE_LIMITS,
       env: {},
       persistent: true,

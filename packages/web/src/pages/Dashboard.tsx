@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { AgentState, AgentStatus } from "@devlet/shared";
-import { MOCK_AGENTS } from "../mocks/agents.js";
+import type { AgentStatus } from "@devlet/shared";
+import { trpc } from "../trpc.js";
 import { AgentCard } from "../components/AgentCard.js";
 import { ConfirmModal } from "../components/ConfirmModal.js";
 
@@ -16,9 +16,24 @@ const STATUS_FILTERS: { label: string; value: AgentStatus | "all" }[] = [
 
 export function Dashboard() {
   const navigate = useNavigate();
-  const [agents] = useState<AgentState[]>(MOCK_AGENTS);
   const [filter, setFilter] = useState<AgentStatus | "all">("all");
   const [fireTarget, setFireTarget] = useState<string | null>(null);
+
+  const { data: agents = [], isLoading, error } = trpc.agents.list.useQuery(
+    undefined,
+    { refetchInterval: 5_000 }
+  );
+
+  const utils = trpc.useUtils();
+  const fireMutation = trpc.agents.fire.useMutation({
+    onSuccess: () => {
+      void utils.agents.list.invalidate();
+      setFireTarget(null);
+    },
+  });
+  const deleteMutation = trpc.agents.delete.useMutation({
+    onSuccess: () => void utils.agents.list.invalidate(),
+  });
 
   const filtered =
     filter === "all" ? agents : agents.filter((a) => a.status === filter);
@@ -30,16 +45,6 @@ export function Dashboard() {
     },
     {} as Record<string, number>
   );
-
-  function handleFire(id: string) {
-    setFireTarget(id);
-  }
-
-  function confirmFire() {
-    // TODO: call trpc.agents.fire.useMutation()
-    console.log("fire", fireTarget);
-    setFireTarget(null);
-  }
 
   const targetAgent = agents.find((a) => a.config.id === fireTarget);
 
@@ -56,7 +61,6 @@ export function Dashboard() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {/* Stat pills */}
           <div className="flex gap-2 text-[11px]">
             <span className="px-2 py-0.5 rounded-sm bg-status-running/10 text-status-running border border-status-running/20">
               {counts["running"] ?? 0} running
@@ -65,10 +69,7 @@ export function Dashboard() {
               {counts["error"] ?? 0} error
             </span>
           </div>
-          <button
-            className="btn-primary"
-            onClick={() => navigate("/hire")}
-          >
+          <button className="btn-primary" onClick={() => navigate("/hire")}>
             + hire agent
           </button>
         </div>
@@ -96,7 +97,20 @@ export function Dashboard() {
 
       {/* Agent grid */}
       <div className="flex-1 overflow-y-auto p-6">
-        {filtered.length === 0 ? (
+        {error && (
+          <div className="text-center text-accent-red text-[12px] py-8">
+            could not reach server — is devlet-server running?
+            <div className="text-gray-600 text-[11px] mt-1">{error.message}</div>
+          </div>
+        )}
+
+        {isLoading && !error && (
+          <div className="text-center text-gray-600 text-[12px] py-8 animate-pulse">
+            connecting to server...
+          </div>
+        )}
+
+        {!isLoading && !error && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center h-48 text-gray-600">
             <div className="text-4xl mb-3 opacity-20">◻</div>
             <div className="text-sm">no agents</div>
@@ -107,27 +121,30 @@ export function Dashboard() {
               hire your first agent
             </button>
           </div>
-        ) : (
+        )}
+
+        {!isLoading && !error && filtered.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {filtered.map((agent) => (
               <AgentCard
+                onDelete={(id) => deleteMutation.mutate(id)}
                 key={agent.config.id}
                 agent={agent}
-                onFire={handleFire}
+                onFire={(id) => setFireTarget(id)}
               />
             ))}
           </div>
         )}
       </div>
 
-      {/* Fire confirmation modal */}
+      {/* Fire confirmation */}
       {fireTarget && targetAgent && (
         <ConfirmModal
           title="Fire agent?"
           message={`"${targetAgent.config.name}" will be terminated and its container destroyed. Mission state will be preserved in ~/.devlet/agents/.`}
-          confirmLabel="fire"
+          confirmLabel={fireMutation.isPending ? "firing..." : "fire"}
           danger
-          onConfirm={confirmFire}
+          onConfirm={() => fireMutation.mutate(fireTarget)}
           onCancel={() => setFireTarget(null)}
         />
       )}

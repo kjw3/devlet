@@ -33,26 +33,41 @@ import type {
 // How well each agent type fits each platform (0–30). Higher = stronger preference.
 
 const DOCKER_AFFINITY: Record<AgentType, number> = {
-  "hermes": 30,       // Smallest, most ephemeral — Docker is the natural home
+  "hermes": 30,       // Lightweight, ephemeral — Docker is the natural home
   "claude-code": 25,  // Lightweight code agent — fast local container
   "codex": 25,        // Same as claude-code
-  "openclaw": 15,     // General purpose — fine on Docker, better on Portainer
+  "opencode": 25,     // Lightweight multi-provider agent
+  "pi": 25,           // Minimal coding harness
+  "gemini": 25,       // Google Gemini CLI — lightweight, ephemeral
+  "nanoclaw": 0,      // Hard-gated: spawns its own containers — Proxmox only
+  "openclaw": 15,     // Gateway agent — fine on Docker, better on Portainer
+  "moltis": 15,       // Persistent gateway — Docker works, Portainer preferred
   "nemoclaw": 5,      // GPU-heavy NLP — Docker last resort (no passthrough by default)
 };
 
 const PORTAINER_AFFINITY: Record<AgentType, number> = {
-  "openclaw": 25,     // Multi-instance, managed — Portainer is ideal
+  "openclaw": 25,     // Multi-instance gateway — Portainer is ideal
+  "moltis": 25,       // Persistent gateway service — Portainer manages lifecycle well
   "hermes": 20,       // Managed orchestration suits Hermes pipelines
   "claude-code": 15,  // Fine on Portainer if Docker is busy
   "codex": 15,
+  "opencode": 15,
+  "pi": 15,
+  "gemini": 15,
+  "nanoclaw": 0,      // Hard-gated: spawns its own containers — Proxmox only
   "nemoclaw": 10,     // Can use container GPU passthrough
 };
 
 const PROXMOX_AFFINITY: Record<AgentType, number> = {
   "nemoclaw": 30,     // GPU passthrough, isolated VM — perfect for heavy NLP
   "openclaw": 20,     // Can run well in an LXC
+  "moltis": 15,       // Persistent service benefits from VM/LXC isolation
   "claude-code": 10,  // Works, but overkill for a code agent
   "codex": 10,
+  "opencode": 10,
+  "pi": 10,
+  "gemini": 10,
+  "nanoclaw": 10,
   "hermes": 5,        // Proxmox is too heavy for a lightweight dispatcher
 };
 
@@ -81,6 +96,16 @@ function scoreDocker(
       available: false,
       reasons: [],
       disqualifyReason: "GPU required but nvidia-container-runtime not available on Docker host",
+    };
+  }
+
+  if (reqs.type === "nanoclaw") {
+    return {
+      platform,
+      score: 0,
+      available: false,
+      reasons: [],
+      disqualifyReason: "nanoclaw spawns its own containers — must run on Proxmox (VM/LXC), not inside Docker",
     };
   }
 
@@ -177,6 +202,16 @@ function scorePortainer(
       available: false,
       reasons: [],
       disqualifyReason: "GPU required but no GPU-capable Portainer endpoints available",
+    };
+  }
+
+  if (reqs.type === "nanoclaw") {
+    return {
+      platform,
+      score: 0,
+      available: false,
+      reasons: [],
+      disqualifyReason: "nanoclaw spawns its own containers — must run on Proxmox (VM/LXC), not inside Portainer",
     };
   }
 

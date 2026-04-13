@@ -13,6 +13,9 @@ import {
   HireAgentInputSchema,
   AgentStateSchema,
   UpdateMissionInputSchema,
+  SetDefaultInputSchema,
+  SetAgentTypeConfigInputSchema,
+  AgentTypeSchema,
 } from "./schemas/index.js";
 import type {
   AgentState,
@@ -22,6 +25,8 @@ import type {
   PortainerStack,
   ProxmoxStatus,
   AgentTemplate,
+  ProviderInfo,
+  AgentTypeConfigMap,
 } from "./types/index.js";
 
 const t = initTRPC.create();
@@ -46,11 +51,19 @@ export const appRouter = router({
       .input(z.string())
       .query(unimplemented as () => AgentState),
 
+    health: publicProcedure
+      .input(z.string())
+      .query(unimplemented as () => { ok: boolean; httpStatus: number } | null),
+
     hire: publicProcedure
       .input(HireAgentInputSchema)
       .mutation(unimplemented as () => AgentState),
 
     fire: publicProcedure
+      .input(z.string())
+      .mutation(unimplemented as () => void),
+
+    delete: publicProcedure
       .input(z.string())
       .mutation(unimplemented as () => void),
 
@@ -88,6 +101,31 @@ export const appRouter = router({
     get: publicProcedure
       .input(z.string())
       .query(unimplemented as () => AgentTemplate),
+  }),
+
+  models: router({
+    /** Returns all detectable providers with their available models and saved defaults. */
+    listProviders: publicProcedure.query(unimplemented as () => ProviderInfo[]),
+
+    /** Save a default model for a provider. Returns the updated ProviderInfo. */
+    setDefault: publicProcedure
+      .input(SetDefaultInputSchema)
+      .mutation(unimplemented as () => ProviderInfo),
+  }),
+
+  agentConfig: router({
+    /** Returns saved provider+model defaults keyed by agent type. */
+    list: publicProcedure.query(unimplemented as () => AgentTypeConfigMap),
+
+    /** Set the default provider+model for an agent type. */
+    set: publicProcedure
+      .input(SetAgentTypeConfigInputSchema)
+      .mutation(unimplemented as () => AgentTypeConfigMap),
+
+    /** Clear the saved config for an agent type (revert to auto-detect). */
+    clear: publicProcedure
+      .input(AgentTypeSchema)
+      .mutation(unimplemented as () => AgentTypeConfigMap),
   }),
 });
 

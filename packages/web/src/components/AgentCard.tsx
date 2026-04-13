@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 interface AgentCardProps {
   agent: AgentState;
   onFire?: (id: string) => void;
+  onDelete?: (id: string) => void;
 }
 
 const PLATFORM_LABELS = {
@@ -20,7 +21,7 @@ function progressPct(agent: AgentState): number {
   return Math.round((agent.missionProgress.completed.length / total) * 100);
 }
 
-export function AgentCard({ agent, onFire }: AgentCardProps) {
+export function AgentCard({ agent, onFire, onDelete }: AgentCardProps) {
   const navigate = useNavigate();
   const pct = progressPct(agent);
   const isActive = agent.status === "running" || agent.status === "bootstrapping";
@@ -89,17 +90,30 @@ export function AgentCard({ agent, onFire }: AgentCardProps) {
       {/* Footer */}
       <div className="flex items-center justify-between pt-1 border-t border-surface-border">
         <StatusBadge status={agent.status} />
-        {agent.status !== "terminated" && (
-          <button
-            className="btn-danger text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => {
-              e.stopPropagation();
-              onFire?.(agent.config.id);
-            }}
-          >
-            fire
-          </button>
-        )}
+        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+          {agent.status !== "terminated" && (
+            <button
+              className="btn-danger text-[10px]"
+              onClick={(e) => {
+                e.stopPropagation();
+                onFire?.(agent.config.id);
+              }}
+            >
+              fire
+            </button>
+          )}
+          {agent.status === "terminated" && (
+            <button
+              className="btn-danger text-[10px]"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete?.(agent.config.id);
+              }}
+            >
+              delete
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

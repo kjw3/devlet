@@ -10,11 +10,17 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@fastify/cors": "^11.1.0",
     "@devlet/shared": "workspace:*",
     "@trpc/server": "^11.1.0",
+    "dockerode": "^4.0.7",
+    "fastify": "^5.6.1",
+    "js-yaml": "^4.1.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/dockerode": "^3.3.39",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.10.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
