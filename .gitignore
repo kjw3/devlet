@@ -1,7 +1,10 @@
 node_modules/
 dist/
 .turbo/
+.pnpm-store/
+*.tsbuildinfo
 *.local
 .env
 .env.*
 !.env.example
+tasks/codex/004-proxmox-deploy.md
