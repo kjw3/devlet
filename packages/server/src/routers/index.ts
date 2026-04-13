@@ -20,6 +20,7 @@ import {
 } from "@devlet/shared";
 import { randomUUID, timingSafeEqual } from "crypto";
 import { z } from "zod";
+import { AddSshKeyInputSchema } from "@devlet/shared";
 import { listImages, probeDocker, allocateFreeOpenClawPort, allocateFreeSshPort, allocateFreeTerminalPort, allocateFreeMoltisPort } from "../platforms/docker.js";
 import {
   allocateFreePortainerMoltisPort,
@@ -47,6 +48,11 @@ import {
   getAgentSshAuthorizedKeys,
   isAgentSshEnabled,
 } from "../agents/ssh.js";
+import {
+  listSshKeys,
+  addSshKey,
+  deleteSshKey,
+} from "../ssh/keyStore.js";
 import { loadModelDefaults, saveModelDefaults } from "../models/config.js";
 import { config as appConfig } from "../config.js";
 import { listProviders } from "../models/providers.js";
@@ -61,7 +67,6 @@ const t = initTRPC.context<{ authHeader?: string }>().create();
 const AUTH_SCHEME = "Bearer ";
 const INTERNAL_ONLY_ENV_KEYS = new Set([
   "DEVLET_TERMINAL_PORT",
-  "DEVLET_TERMINAL_TOKEN",
   "DEVLET_SSH_PORT",
   "DEVLET_SSH_USERNAME",
   "DEVLET_SSH_AUTHORIZED_KEYS_B64",
@@ -129,7 +134,6 @@ async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
 
   let access: AgentState["access"];
   const terminalPort = state.config.env["DEVLET_TERMINAL_PORT"];
-  const terminalToken = state.config.env["DEVLET_TERMINAL_TOKEN"];
   const sshPort = state.config.env["DEVLET_SSH_PORT"];
   const sshUsername = state.config.env["DEVLET_SSH_USERNAME"] ?? "agent";
   const sshFingerprint = state.config.env["DEVLET_SSH_HOST_KEY_FINGERPRINT"];
@@ -146,7 +150,6 @@ async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
       terminal: {
         url: buildAgentProxyUrl(state.config.id, "terminal", terminalTarget),
         username: "devlet",
-        ...(terminalToken ? { password: terminalToken } : {}),
       },
     };
   }
@@ -279,14 +282,14 @@ function normalizeMission(mission: {
   };
 }
 
-async function ensureAgentAccessPorts(config: AgentConfig): Promise<void> {
+async function ensureAgentAccessPorts(config: AgentConfig, sshEnabled: boolean): Promise<void> {
   if (config.platform.type === "portainer") {
     if (!config.env["DEVLET_TERMINAL_PORT"]) {
       config.env["DEVLET_TERMINAL_PORT"] = String(
         await allocateFreePortainerTerminalPort(config.platform.endpointId)
       );
     }
-    if (isAgentSshEnabled() && !config.env["DEVLET_SSH_PORT"]) {
+    if (sshEnabled && !config.env["DEVLET_SSH_PORT"]) {
       config.env["DEVLET_SSH_PORT"] = String(
         await allocateFreePortainerSshPort(config.platform.endpointId)
       );
@@ -307,7 +310,7 @@ async function ensureAgentAccessPorts(config: AgentConfig): Promise<void> {
   if (!config.env["DEVLET_TERMINAL_PORT"]) {
     config.env["DEVLET_TERMINAL_PORT"] = String(await allocateFreeTerminalPort());
   }
-  if (isAgentSshEnabled() && !config.env["DEVLET_SSH_PORT"]) {
+  if (sshEnabled && !config.env["DEVLET_SSH_PORT"]) {
     config.env["DEVLET_SSH_PORT"] = String(await allocateFreeSshPort());
   }
   if (config.type === "openclaw" && !config.env["OPENCLAW_HOST_PORT"]) {
@@ -319,9 +322,19 @@ async function ensureAgentAccessPorts(config: AgentConfig): Promise<void> {
 }
 
 async function ensureAgentAccessEnv(config: AgentConfig): Promise<void> {
-  await ensureAgentAccessPorts(config);
+  // Merge env-var keys with persistently stored keys first, so we know
+  // whether SSH should be enabled before allocating ports.
+  const storedKeys = await listSshKeys();
+  const envKeys = getAgentSshAuthorizedKeys();
+  const allAuthorizedKeys = [
+    ...(envKeys ? [envKeys] : []),
+    ...storedKeys.map((k) => k.publicKey),
+  ].join("\n").trim();
 
-  if (isAgentSshEnabled()) {
+  const sshEnabled = isAgentSshEnabled() || storedKeys.length > 0;
+  await ensureAgentAccessPorts(config, sshEnabled);
+
+  if (sshEnabled) {
     if (!config.env["DEVLET_SSH_HOST_KEY_PRIVATE_B64"] || !config.env["DEVLET_SSH_HOST_KEY_PUBLIC_B64"]) {
       const sshMaterial = await generateAgentSshMaterial(config.id);
       config.env["DEVLET_SSH_HOST_KEY_PRIVATE_B64"] = Buffer.from(sshMaterial.privateKey, "utf8").toString("base64");
@@ -329,10 +342,7 @@ async function ensureAgentAccessEnv(config: AgentConfig): Promise<void> {
       config.env["DEVLET_SSH_HOST_KEY_FINGERPRINT"] = sshMaterial.fingerprint;
     }
     if (!config.env["DEVLET_SSH_AUTHORIZED_KEYS_B64"]) {
-      config.env["DEVLET_SSH_AUTHORIZED_KEYS_B64"] = Buffer.from(
-        getAgentSshAuthorizedKeys(),
-        "utf8"
-      ).toString("base64");
+      config.env["DEVLET_SSH_AUTHORIZED_KEYS_B64"] = Buffer.from(allAuthorizedKeys, "utf8").toString("base64");
     }
     if (!config.env["DEVLET_SSH_USERNAME"]) {
       config.env["DEVLET_SSH_USERNAME"] = "agent";
@@ -460,8 +470,25 @@ export const appRouter = t.router({
 
         const agentEnv: Record<string, string> = { ...input.env };
 
-        if (!agentEnv["DEVLET_TERMINAL_TOKEN"]) {
-          agentEnv["DEVLET_TERMINAL_TOKEN"] = randomUUID();
+        // Inject all provider credentials configured on the server so every
+        // agent has access to all tools in the base image, regardless of which
+        // agent type was selected at hire time.  Client-supplied values take
+        // precedence (don't overwrite).
+        const PROVIDER_CREDENTIAL_KEYS = [
+          "ANTHROPIC_API_KEY",
+          "OPENAI_API_KEY",
+          "GEMINI_API_KEY",
+          "GOOGLE_GENERATIVE_AI_API_KEY",
+          "OPENROUTER_API_KEY",
+          "NVIDIA_API_KEY",
+          "LITELLM_API_KEY",
+          "LITELLM_BASE_URL",
+        ] as const;
+        for (const key of PROVIDER_CREDENTIAL_KEYS) {
+          const val = process.env[key];
+          if (val && !agentEnv[key]) {
+            agentEnv[key] = val;
+          }
         }
 
         if (input.type === "openclaw") {
@@ -621,6 +648,31 @@ export const appRouter = t.router({
         if (!updated) throw new TRPCError({ code: "NOT_FOUND" });
         return updated;
       }),
+  }),
+
+  settings: t.router({
+    ssh: t.router({
+      listKeys: authProcedure.query(async () => listSshKeys()),
+
+      addKey: authProcedure
+        .input(AddSshKeyInputSchema)
+        .mutation(async ({ input }) => {
+          try {
+            return await addSshKey(input.name, input.publicKey);
+          } catch (err) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }),
+
+      deleteKey: authProcedure
+        .input(z.string())
+        .mutation(async ({ input }) => {
+          await deleteSshKey(input);
+        }),
+    }),
   }),
 
   agentConfig: t.router({

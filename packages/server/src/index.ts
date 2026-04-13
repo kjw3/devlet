@@ -9,6 +9,7 @@ import { probePortainer } from "./platforms/portainer.js";
 import { listAgentStates, loadAgentState, saveAgentState } from "./agents/state.js";
 import { validateAgentProxyToken, resolveSurfaceTargetUrl, type AgentAccessSurface } from "./agent-access.js";
 import { config } from "./config.js";
+import { bootstrapSshKeysFromEnv } from "./ssh/keyStore.js";
 
 const server = Fastify();
 const authToken = process.env["DEVLET_AUTH_TOKEN"];
@@ -188,6 +189,8 @@ await server.listen({
 });
 
 console.log("Devlet server listening on http://localhost:3001");
+
+await bootstrapSshKeysFromEnv();
 
 // ─── Background: sync agent status when containers exit ───────────────────────
 async function syncAgentStatuses(): Promise<void> {

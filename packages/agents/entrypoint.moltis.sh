@@ -5,6 +5,7 @@ set -e
 
 . /usr/local/bin/devlet-terminal
 . /usr/local/bin/devlet-ssh
+. /usr/local/bin/devlet-coding-init
 
 MISSION="${DEVLET_AGENT_MISSION:-}"
 PORT="${MOLTIS_PORT:-13131}"

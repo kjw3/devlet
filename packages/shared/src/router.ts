@@ -18,6 +18,7 @@ import {
   AgentTypeSchema,
   SetPortainerExclusionInputSchema,
   SetProxmoxExclusionInputSchema,
+  AddSshKeyInputSchema,
 } from "./schemas/index.js";
 import type {
   AgentState,
@@ -30,6 +31,7 @@ import type {
   ProviderInfo,
   AgentTypeConfigMap,
   PlatformExclusions,
+  SshPublicKey,
 } from "./types/index.js";
 
 const t = initTRPC.create();
@@ -121,6 +123,18 @@ export const appRouter = router({
     setDefault: publicProcedure
       .input(SetDefaultInputSchema)
       .mutation(unimplemented as () => ProviderInfo),
+  }),
+
+  settings: router({
+    ssh: router({
+      listKeys: publicProcedure.query(unimplemented as () => SshPublicKey[]),
+      addKey: publicProcedure
+        .input(AddSshKeyInputSchema)
+        .mutation(unimplemented as () => SshPublicKey),
+      deleteKey: publicProcedure
+        .input(z.string())
+        .mutation(unimplemented as () => void),
+    }),
   }),
 
   agentConfig: router({

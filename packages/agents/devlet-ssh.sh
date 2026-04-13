@@ -23,6 +23,13 @@ else
   mkdir -p "$_ds_ssh_dir" "$_ds_runtime_dir"
   chmod 700 "$_ds_ssh_dir" "$_ds_runtime_dir"
 
+  # Wire up the profile hook so SSH login shells source ~/.devlet-env.
+  # The env file itself is written (and refreshed after tool init) by the
+  # entrypoint; this just ensures the sourcing line is present.
+  if ! grep -qF '.devlet-env' "${_ds_home}/.profile" 2>/dev/null; then
+    printf '\n[ -f ~/.devlet-env ] && . ~/.devlet-env\n' >> "${_ds_home}/.profile"
+  fi
+
   printf '%s' "$_ds_authorized_keys_b64" | base64 -d > "$_ds_auth_keys"
   printf '%s' "$_ds_host_key_private_b64" | base64 -d > "$_ds_host_key"
   printf '%s' "$_ds_host_key_public_b64" | base64 -d > "${_ds_host_key}.pub"

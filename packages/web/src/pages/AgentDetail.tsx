@@ -52,14 +52,54 @@ function MissionSteps({ agent }: { agent: AgentState }) {
   );
 }
 
-// ─── Web Terminal panel ───────────────────────────────────────────────────────
+// ─── Connection detail rows (shared across surface types) ─────────────────────
 
-function TerminalPanel({ access }: { access: NonNullable<AgentState["access"]>["terminal"] }) {
+function ConnRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 py-1.5 border-b border-surface-border last:border-0">
+      <span className="label w-20 flex-shrink-0">{label}</span>
+      <div className="flex-1 min-w-0 flex items-center gap-2">{children}</div>
+    </div>
+  );
+}
+
+// ─── Connections panel ────────────────────────────────────────────────────────
+
+function ConnectionsPanel({ agentId, access }: {
+  agentId: string;
+  access: NonNullable<AgentState["access"]>;
+}) {
+  const hasAny = access.terminal || access.ssh || access.openclaw || access.moltis;
+  if (!hasAny) return null;
+
+  return (
+    <div className="card p-4">
+      <div className="label mb-3">connections</div>
+      <div className="space-y-4">
+        {access.terminal && (
+          <TerminalSection access={access.terminal} />
+        )}
+        {access.ssh && (
+          <SshSection access={access.ssh} />
+        )}
+        {access.openclaw && (
+          <OpenClawSection agentId={agentId} access={access.openclaw} />
+        )}
+        {access.moltis && (
+          <MoltisSection agentId={agentId} access={access.moltis} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Terminal section ─────────────────────────────────────────────────────────
+
+function TerminalSection({ access }: { access: NonNullable<AgentState["access"]>["terminal"] }) {
   if (!access) return null;
   const { url, username, password: token } = access;
-
   const [tokenVisible, setTokenVisible] = useState(false);
-  const [copiedToken, setCopiedToken]   = useState(false);
+  const [copiedToken, setCopiedToken] = useState(false);
 
   const copyToken = useCallback(() => {
     if (!token) return;
@@ -70,57 +110,53 @@ function TerminalPanel({ access }: { access: NonNullable<AgentState["access"]>["
   }, [token]);
 
   return (
-    <div className="card p-4">
-      <div className="label mb-3">terminal</div>
-      <div className="space-y-2.5">
-        <div className="flex items-center gap-3">
-          <span className="label w-16 flex-shrink-0">url</span>
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={token ? copyToken : undefined}
-            title={token ? "opens tab · copies password" : undefined}
-            className="text-[12px] font-mono text-accent-cyan hover:underline"
-          >
-            {url}
-          </a>
-          {copiedToken && (
-            <span className="text-[10px] text-accent-cyan animate-pulse">password copied</span>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="label w-16 flex-shrink-0">user</span>
-          <span className="text-[12px] font-mono text-gray-400">{username}</span>
-        </div>
-        {token && (
-          <div className="flex items-center gap-3">
-            <span className="label w-16 flex-shrink-0">password</span>
-            <span className="text-[12px] font-mono text-gray-400 flex-1 truncate">
-              {tokenVisible ? token : "••••••••••••••••••••••••••••••••••••"}
-            </span>
-            <button
-              onClick={() => setTokenVisible((v) => !v)}
-              className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors px-1"
-            >
-              {tokenVisible ? "hide" : "show"}
-            </button>
-            <button
-              onClick={copyToken}
-              className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors px-1"
-            >
-              {copiedToken ? "copied ✓" : "copy"}
-            </button>
-          </div>
+    <div>
+      <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1.5">terminal</div>
+      <ConnRow label="url">
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={token ? copyToken : undefined}
+          title={token ? "opens tab · copies password" : undefined}
+          className="text-[12px] font-mono text-accent-cyan hover:underline truncate"
+        >
+          {url}
+        </a>
+        {copiedToken && (
+          <span className="text-[10px] text-accent-cyan animate-pulse flex-shrink-0">password copied</span>
         )}
-      </div>
+      </ConnRow>
+      <ConnRow label="user">
+        <span className="text-[12px] font-mono text-gray-400">{username}</span>
+      </ConnRow>
+      {token && (
+        <ConnRow label="password">
+          <span className="text-[12px] font-mono text-gray-400 flex-1 truncate">
+            {tokenVisible ? token : "••••••••••••••••••••••••••••••••"}
+          </span>
+          <button
+            onClick={() => setTokenVisible((v) => !v)}
+            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
+          >
+            {tokenVisible ? "hide" : "show"}
+          </button>
+          <button
+            onClick={copyToken}
+            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
+          >
+            {copiedToken ? "copied ✓" : "copy"}
+          </button>
+        </ConnRow>
+      )}
     </div>
   );
 }
 
-function SshPanel({ access }: { access: NonNullable<AgentState["access"]>["ssh"] }) {
-  if (!access) return null;
+// ─── SSH section ──────────────────────────────────────────────────────────────
 
+function SshSection({ access }: { access: NonNullable<AgentState["access"]>["ssh"] }) {
+  if (!access) return null;
   const command = `ssh ${access.username}@${access.host} -p ${access.port}`;
   const [copiedCommand, setCopiedCommand] = useState(false);
 
@@ -132,47 +168,38 @@ function SshPanel({ access }: { access: NonNullable<AgentState["access"]>["ssh"]
   }, [command]);
 
   return (
-    <div className="card p-4">
-      <div className="label mb-3">ssh</div>
-      <div className="space-y-2.5">
-        <div className="flex items-center gap-3">
-          <span className="label w-24 flex-shrink-0">command</span>
-          <span className="text-[12px] font-mono text-gray-300 flex-1 truncate">{command}</span>
-          <button
-            onClick={copyCommand}
-            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors px-1"
-          >
-            {copiedCommand ? "copied ✓" : "copy"}
-          </button>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="label w-24 flex-shrink-0">host</span>
-          <span className="text-[12px] font-mono text-gray-400">{access.host}</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="label w-24 flex-shrink-0">user</span>
-          <span className="text-[12px] font-mono text-gray-400">{access.username}</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="label w-24 flex-shrink-0">port</span>
-          <span className="text-[12px] font-mono text-gray-400">{access.port}</span>
-        </div>
-        {access.hostKeyFingerprint && (
-          <div className="flex items-start gap-3">
-            <span className="label w-24 flex-shrink-0 pt-0.5">host key</span>
-            <span className="text-[12px] font-mono text-gray-400 break-all">
-              {access.hostKeyFingerprint}
-            </span>
-          </div>
-        )}
-      </div>
+    <div>
+      <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1.5">ssh</div>
+      <ConnRow label="command">
+        <span className="text-[12px] font-mono text-gray-300 truncate flex-1">{command}</span>
+        <button
+          onClick={copyCommand}
+          className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
+        >
+          {copiedCommand ? "copied ✓" : "copy"}
+        </button>
+      </ConnRow>
+      <ConnRow label="host">
+        <span className="text-[12px] font-mono text-gray-400">{access.host}</span>
+      </ConnRow>
+      <ConnRow label="user">
+        <span className="text-[12px] font-mono text-gray-400">{access.username}</span>
+      </ConnRow>
+      <ConnRow label="port">
+        <span className="text-[12px] font-mono text-gray-400">{access.port}</span>
+      </ConnRow>
+      {access.hostKeyFingerprint && (
+        <ConnRow label="host key">
+          <span className="text-[12px] font-mono text-gray-400 break-all">{access.hostKeyFingerprint}</span>
+        </ConnRow>
+      )}
     </div>
   );
 }
 
-// ─── OpenClaw Control UI panel ────────────────────────────────────────────────
+// ─── OpenClaw section ─────────────────────────────────────────────────────────
 
-function OpenClawPanel({ agentId, access }: { agentId: string; access: NonNullable<AgentState["access"]>["openclaw"] }) {
+function OpenClawSection({ agentId, access }: { agentId: string; access: NonNullable<AgentState["access"]>["openclaw"] }) {
   if (!access) return null;
   const { url, token } = access;
   const fullUrl = (() => {
@@ -193,126 +220,85 @@ function OpenClawPanel({ agentId, access }: { agentId: string; access: NonNullab
     });
   }, [token]);
 
-  const { data: health } = trpc.agents.health.useQuery(agentId, {
-    refetchInterval: 5_000,
-  });
-
-  const gwStatus = health === undefined
-    ? "checking"
-    : health?.ok
-    ? "ready"
-    : "unreachable";
+  const { data: health } = trpc.agents.health.useQuery(agentId, { refetchInterval: 5_000 });
+  const gwStatus = health === undefined ? "checking" : health?.ok ? "ready" : "unreachable";
 
   return (
-    <div className="card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="label">control ui</div>
-        {gwStatus === "ready" && (
-          <span className="text-[10px] text-green-500 font-medium">ready</span>
-        )}
-        {gwStatus === "checking" && (
-          <span className="text-[10px] text-gray-500 font-medium animate-pulse">checking…</span>
-        )}
-        {gwStatus === "unreachable" && (
-          <span className="text-[10px] text-yellow-500 font-medium">unreachable</span>
-        )}
+    <div>
+      <div className="flex items-center gap-2 mb-1.5">
+        <div className="text-[10px] text-gray-600 uppercase tracking-wider">control ui</div>
+        {gwStatus === "ready" && <span className="text-[10px] text-green-500">ready</span>}
+        {gwStatus === "checking" && <span className="text-[10px] text-gray-500 animate-pulse">checking…</span>}
+        {gwStatus === "unreachable" && <span className="text-[10px] text-yellow-500">unreachable</span>}
       </div>
-
-      <div className="space-y-2.5">
-        {/* URL row */}
-        <div className="flex items-center gap-3">
-          <span className="label w-16 flex-shrink-0">url</span>
-          <a
-            href={fullUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={token ? copyToken : undefined}
-            title={token ? "opens tab · copies token" : undefined}
-            className="text-[12px] font-mono text-accent-cyan hover:underline"
+      <ConnRow label="url">
+        <a
+          href={fullUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={token ? copyToken : undefined}
+          title={token ? "opens tab · copies token" : undefined}
+          className="text-[12px] font-mono text-accent-cyan hover:underline truncate"
+        >
+          {url}
+        </a>
+        {copiedToken && (
+          <span className="text-[10px] text-accent-cyan animate-pulse flex-shrink-0">token copied</span>
+        )}
+      </ConnRow>
+      {token && (
+        <ConnRow label="token">
+          <span className="text-[12px] font-mono text-gray-400 flex-1 truncate">
+            {tokenVisible ? token : "••••••••••••••••••••••••••••••••"}
+          </span>
+          <button
+            onClick={() => setTokenVisible((v) => !v)}
+            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
           >
-            {url}
-          </a>
-          {copiedToken && (
-            <span className="text-[10px] text-accent-cyan animate-pulse">token copied</span>
-          )}
-        </div>
-
-        {/* Token row */}
-        {token && (
-          <div className="flex items-center gap-3">
-            <span className="label w-16 flex-shrink-0">token</span>
-            <span className="text-[12px] font-mono text-gray-400 flex-1 truncate">
-              {tokenVisible ? token : "••••••••••••••••••••••••••••••••••••"}
-            </span>
-            <button
-              onClick={() => setTokenVisible((v) => !v)}
-              className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors px-1"
-              title={tokenVisible ? "hide token" : "reveal token"}
-            >
-              {tokenVisible ? "hide" : "show"}
-            </button>
-            <button
-              onClick={copyToken}
-              className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors px-1"
-              title="Copy token"
-            >
-              {copiedToken ? "copied ✓" : "copy"}
-            </button>
-          </div>
-        )}
-      </div>
+            {tokenVisible ? "hide" : "show"}
+          </button>
+          <button
+            onClick={copyToken}
+            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
+          >
+            {copiedToken ? "copied ✓" : "copy"}
+          </button>
+        </ConnRow>
+      )}
     </div>
   );
 }
 
-// ─── Moltis gateway UI panel ─────────────────────────────────────────────────
+// ─── Moltis section ───────────────────────────────────────────────────────────
 
-function MoltisPanel({ agentId, access }: { agentId: string; access: NonNullable<AgentState["access"]>["moltis"] }) {
+function MoltisSection({ agentId, access }: { agentId: string; access: NonNullable<AgentState["access"]>["moltis"] }) {
   if (!access) return null;
   const { url } = access;
 
-  const { data: health } = trpc.agents.health.useQuery(agentId, {
-    refetchInterval: 5_000,
-  });
-
-  const gwStatus = health === undefined
-    ? "checking"
-    : health?.ok
-    ? "ready"
-    : "unreachable";
+  const { data: health } = trpc.agents.health.useQuery(agentId, { refetchInterval: 5_000 });
+  const gwStatus = health === undefined ? "checking" : health?.ok ? "ready" : "unreachable";
 
   return (
-    <div className="card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="label">moltis gateway</div>
-        {gwStatus === "ready" && (
-          <span className="text-[10px] text-green-500 font-medium">ready</span>
-        )}
-        {gwStatus === "checking" && (
-          <span className="text-[10px] text-gray-500 font-medium animate-pulse">checking…</span>
-        )}
-        {gwStatus === "unreachable" && (
-          <span className="text-[10px] text-yellow-500 font-medium">unreachable</span>
-        )}
+    <div>
+      <div className="flex items-center gap-2 mb-1.5">
+        <div className="text-[10px] text-gray-600 uppercase tracking-wider">moltis gateway</div>
+        {gwStatus === "ready" && <span className="text-[10px] text-green-500">ready</span>}
+        {gwStatus === "checking" && <span className="text-[10px] text-gray-500 animate-pulse">checking…</span>}
+        {gwStatus === "unreachable" && <span className="text-[10px] text-yellow-500">unreachable</span>}
       </div>
-
-      <div className="space-y-2.5">
-        <div className="flex items-center gap-3">
-          <span className="label w-20 flex-shrink-0">url</span>
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[12px] font-mono text-accent-cyan hover:underline"
-          >
-            {url}
-          </a>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="label w-20 flex-shrink-0">auth</span>
-          <span className="text-[12px] text-gray-500">disabled (local gateway)</span>
-        </div>
-      </div>
+      <ConnRow label="url">
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[12px] font-mono text-accent-cyan hover:underline"
+        >
+          {url}
+        </a>
+      </ConnRow>
+      <ConnRow label="auth">
+        <span className="text-[12px] text-gray-500">disabled (local gateway)</span>
+      </ConnRow>
     </div>
   );
 }
@@ -431,53 +417,61 @@ export function AgentDetail() {
           </div>
         )}
 
+        {/* Top row: configuration + connections */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="card p-4">
-            <div className="label mb-3">configuration</div>
-            <InfoRow label="type" value={AGENT_TYPE_LABELS[config.type]} />
-            <InfoRow label="platform" value={PLATFORM_LABELS[config.platform.type]} />
-            <InfoRow label="role" value={config.role} />
-            <InfoRow label="resources" value={`${config.resources.cpus} CPU · ${config.resources.memoryMb}MB RAM`} />
-            <InfoRow label="persistent" value={config.persistent ? "yes" : "no"} />
-            <InfoRow label="platform ref" value={agent.platformRef || "—"} />
-            <InfoRow label="created" value={new Date(config.createdAt).toLocaleString()} />
-            <InfoRow label="last active" value={new Date(config.lastActiveAt).toLocaleString()} />
+
+          {/* Configuration — agent metadata + mission */}
+          <div className="card p-4 space-y-4">
+            <div>
+              <div className="label mb-3">configuration</div>
+              <InfoRow label="type" value={AGENT_TYPE_LABELS[config.type]} />
+              <InfoRow label="platform" value={PLATFORM_LABELS[config.platform.type]} />
+              <InfoRow label="role" value={config.role} />
+              <InfoRow label="resources" value={`${config.resources.cpus} CPU · ${config.resources.memoryMb}MB RAM`} />
+              <InfoRow label="persistent" value={config.persistent ? "yes" : "no"} />
+              <InfoRow label="platform ref" value={agent.platformRef || "—"} />
+              <InfoRow label="created" value={new Date(config.createdAt).toLocaleString()} />
+              <InfoRow label="last active" value={new Date(config.lastActiveAt).toLocaleString()} />
+            </div>
+
+            <div className="border-t border-surface-border pt-4">
+              <div className="label mb-2">mission</div>
+              <div className="text-[12px] text-gray-300 mb-3 leading-relaxed">
+                {config.mission.description}
+              </div>
+              {config.mission.steps.length > 0 && (
+                <>
+                  <div className="label mb-2">steps</div>
+                  <MissionSteps agent={agent} />
+                </>
+              )}
+              <div className="mt-3 pt-3 border-t border-surface-border flex items-center justify-between text-[11px]">
+                <span className="label">on complete</span>
+                <span className="text-gray-400">{config.mission.onComplete}</span>
+              </div>
+              {missionProgress.startedAt && (
+                <div className="flex items-center justify-between text-[11px] mt-1">
+                  <span className="label">started</span>
+                  <span className="text-gray-500">{new Date(missionProgress.startedAt).toLocaleString()}</span>
+                </div>
+              )}
+              {missionProgress.completedAt && (
+                <div className="flex items-center justify-between text-[11px] mt-1">
+                  <span className="label">completed</span>
+                  <span className="text-gray-500">{new Date(missionProgress.completedAt).toLocaleString()}</span>
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="card p-4">
-            <div className="label mb-3">mission</div>
-            <div className="text-[12px] text-gray-300 mb-3 leading-relaxed">
-              {config.mission.description}
-            </div>
-            {config.mission.steps.length > 0 && (
-              <>
-                <div className="label mb-2">steps</div>
-                <MissionSteps agent={agent} />
-              </>
-            )}
-            <div className="mt-3 pt-3 border-t border-surface-border flex items-center justify-between text-[11px]">
-              <span className="label">on complete</span>
-              <span className="text-gray-400">{config.mission.onComplete}</span>
-            </div>
-            {missionProgress.startedAt && (
-              <div className="flex items-center justify-between text-[11px] mt-1">
-                <span className="label">started</span>
-                <span className="text-gray-500">
-                  {new Date(missionProgress.startedAt).toLocaleString()}
-                </span>
-              </div>
-            )}
-            {missionProgress.completedAt && (
-              <div className="flex items-center justify-between text-[11px] mt-1">
-                <span className="label">completed</span>
-                <span className="text-gray-500">
-                  {new Date(missionProgress.completedAt).toLocaleString()}
-                </span>
-              </div>
-            )}
-          </div>
+          {/* Connections */}
+          {agent.access
+            ? <ConnectionsPanel agentId={config.id} access={agent.access} />
+            : <div className="card p-4"><div className="label mb-1">connections</div><p className="text-[12px] text-gray-600 italic">no connections available</p></div>
+          }
         </div>
 
+        {/* Logs — always at the bottom */}
         <div className="card p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="label">logs</div>
@@ -503,46 +497,6 @@ export function AgentDetail() {
           </div>
           <LogViewer logs={logs} className="h-48" />
         </div>
-
-        {/* Web Terminal panel — all agent types */}
-        {agent.access?.terminal && (
-          <TerminalPanel access={agent.access.terminal} />
-        )}
-
-        {agent.access?.ssh && (
-          <SshPanel access={agent.access.ssh} />
-        )}
-
-        {/* OpenClaw Control UI panel */}
-        {config.type === "openclaw" && agent.access?.openclaw && (
-          <OpenClawPanel agentId={config.id} access={agent.access.openclaw} />
-        )}
-
-        {/* Moltis gateway UI panel */}
-        {config.type === "moltis" && agent.access?.moltis && (
-          <MoltisPanel agentId={config.id} access={agent.access.moltis} />
-        )}
-
-        {Object.keys(config.env).length > 0 && (
-          <div className="card p-4">
-            <div className="label mb-3">environment</div>
-            <div className="space-y-1">
-              {Object.entries(config.env)
-                // Secrets shown in their respective panels; redact them here
-                .filter(([k]) =>
-                  k !== "OPENCLAW_GATEWAY_TOKEN" &&
-                  k !== "DEVLET_TERMINAL_TOKEN"
-                )
-                .map(([k, v]) => (
-                  <div key={k} className="flex items-center gap-2 text-[11px] font-mono">
-                    <span className="text-accent-cyan">{k}</span>
-                    <span className="text-gray-600">=</span>
-                    <span className="text-gray-400">{v}</span>
-                  </div>
-                ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {showFire && (

@@ -203,3 +203,10 @@ export const SetProxmoxExclusionInputSchema = z.object({
   target: z.string().min(1),
   excluded: z.boolean(),
 });
+
+// ─── SSH Key Management ───────────────────────────────────────────────────────
+
+export const AddSshKeyInputSchema = z.object({
+  name: z.string().min(1).max(64),
+  publicKey: z.string().min(1),
+});

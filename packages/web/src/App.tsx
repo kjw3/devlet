@@ -5,6 +5,7 @@ import { AgentDetail } from "./pages/AgentDetail.js";
 import { HireAgent } from "./pages/HireAgent.js";
 import { ModelConfig } from "./pages/ModelConfig.js";
 import { AgentConfig } from "./pages/AgentConfig.js";
+import { Settings } from "./pages/Settings.js";
 import { PlatformSidebar } from "./components/PlatformSidebar.js";
 import { DEVLET_AUTH_STORAGE_KEY } from "./trpc.js";
 
@@ -81,6 +82,14 @@ export default function App() {
             >
               providers
             </NavLink>
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                `label text-[12px] transition-colors ${isActive ? "text-accent-cyan" : "text-gray-500 hover:text-gray-300"}`
+              }
+            >
+              settings
+            </NavLink>
             <button
               className="label text-[12px] text-gray-500 hover:text-gray-300 transition-colors"
               onClick={() => {
@@ -101,6 +110,7 @@ export default function App() {
             <Route path="/hire" element={<HireAgent />} />
             <Route path="/providers" element={<ModelConfig />} />
             <Route path="/agent-config" element={<AgentConfig />} />
+            <Route path="/settings" element={<Settings />} />
           </Routes>
 
           <PlatformSidebar />

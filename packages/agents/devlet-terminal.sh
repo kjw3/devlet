@@ -13,18 +13,14 @@ _dt_token="${DEVLET_TERMINAL_TOKEN:-}"
 if [ -z "$_dt_port" ]; then
   echo "[devlet-terminal] DEVLET_TERMINAL_PORT not set — skipping terminal"
 else
-  if [ -n "$_dt_token" ]; then
-    ttyd \
-      --port "$_dt_port" \
-      --writable \
-      --credential "devlet:${_dt_token}" \
-      bash </dev/null >/dev/null 2>&1 &
-  else
-    ttyd \
-      --port "$_dt_port" \
-      --writable \
-      bash </dev/null >/dev/null 2>&1 &
-  fi
+  # No --credential: the devlet HMAC proxy token already authenticates the
+  # connection. Browser JS cannot set Authorization headers on WebSocket
+  # upgrades (browser security restriction), so Basic Auth through a proxy
+  # silently breaks the terminal connection.
+  ttyd \
+    --port "$_dt_port" \
+    --writable \
+    bash </dev/null >/dev/null 2>&1 &
   echo "[devlet-terminal] started on port $_dt_port"
 fi
 
