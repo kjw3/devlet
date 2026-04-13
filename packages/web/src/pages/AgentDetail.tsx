@@ -123,7 +123,12 @@ function TerminalPanel({ access }: { access: NonNullable<AgentState["access"]>["
 function OpenClawPanel({ agentId, access }: { agentId: string; access: NonNullable<AgentState["access"]>["openclaw"] }) {
   if (!access) return null;
   const { url, token } = access;
-  const fullUrl = token ? `${url}?token=${encodeURIComponent(token)}` : url;
+  const fullUrl = (() => {
+    if (!token) return url;
+    const target = new URL(url, window.location.origin);
+    target.hash = `token=${encodeURIComponent(token)}`;
+    return target.toString();
+  })();
 
   const [copiedToken, setCopiedToken] = useState(false);
   const [tokenVisible, setTokenVisible] = useState(false);

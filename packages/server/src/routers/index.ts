@@ -36,7 +36,13 @@ import {
   saveAgentState,
   deleteAgentState,
 } from "../agents/state.js";
+import {
+  buildAgentProxyUrl,
+  resolveAgentAccessHost,
+  resolveSurfaceTargetUrl,
+} from "../agent-access.js";
 import { loadModelDefaults, saveModelDefaults } from "../models/config.js";
+import { config as appConfig } from "../config.js";
 import { listProviders } from "../models/providers.js";
 import { loadAgentTypeConfig, saveAgentTypeConfig } from "../agents/typeConfig.js";
 import {
@@ -62,32 +68,6 @@ const SECRET_ENV_PATTERNS = [
   /SESSION/i,
   /AUTH/i,
 ];
-
-async function getPortainerEndpointHost(endpointId: number): Promise<string> {
-  try {
-    const status = await probePortainer();
-    const endpoint = status.endpoints.find((item) => item.id === endpointId);
-    if (!endpoint) return "localhost";
-
-    if (endpoint.url.startsWith("unix://")) {
-      return "localhost";
-    }
-
-    const normalized = endpoint.url.includes("://")
-      ? endpoint.url
-      : `tcp://${endpoint.url}`;
-    return new URL(normalized).hostname || "localhost";
-  } catch {
-    return "localhost";
-  }
-}
-
-async function resolveAgentAccessHost(platform: PlatformTarget): Promise<string> {
-  if (platform.type === "portainer") {
-    return getPortainerEndpointHost(platform.endpointId);
-  }
-  return "localhost";
-}
 
 function authenticateRequest(authHeader?: string): void {
   const expected = process.env["DEVLET_AUTH_TOKEN"];
@@ -140,36 +120,36 @@ async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
   const terminalToken = state.config.env["DEVLET_TERMINAL_TOKEN"];
   const openclawPort = state.config.env["OPENCLAW_HOST_PORT"];
   const openclawToken = state.config.env["OPENCLAW_GATEWAY_TOKEN"];
-  const moltisPort = state.config.env["MOLTIS_HOST_PORT"];
+  const terminalTarget = await resolveSurfaceTargetUrl(state, "terminal");
+  const openclawTarget = await resolveSurfaceTargetUrl(state, "openclaw");
+  const moltisTarget = await resolveSurfaceTargetUrl(state, "moltis");
 
-  const host = await resolveAgentAccessHost(state.config.platform);
-
-  if (terminalPort) {
+  if (terminalPort && terminalTarget) {
     access = {
       ...access,
       terminal: {
-        url: `http://${host}:${terminalPort}`,
+        url: buildAgentProxyUrl(state.config.id, "terminal", terminalTarget),
         username: "devlet",
         ...(terminalToken ? { password: terminalToken } : {}),
       },
     };
   }
 
-  if (state.config.type === "openclaw" && openclawPort) {
+  if (state.config.type === "openclaw" && openclawPort && openclawTarget) {
     access = {
       ...access,
       openclaw: {
-        url: `http://${host}:${openclawPort}`,
+        url: buildAgentProxyUrl(state.config.id, "openclaw", openclawTarget),
         ...(openclawToken ? { token: openclawToken } : {}),
       },
     };
   }
 
-  if (state.config.type === "moltis" && moltisPort) {
+  if (state.config.type === "moltis" && moltisTarget) {
     access = {
       ...access,
       moltis: {
-        url: `http://${host}:${moltisPort}`,
+        url: buildAgentProxyUrl(state.config.id, "moltis", moltisTarget),
       },
     };
   }
@@ -306,12 +286,7 @@ async function ensureAgentAccessEnv(config: AgentConfig): Promise<void> {
   await ensureAgentAccessPorts(config);
 
   if (config.type === "openclaw") {
-    const host = await resolveAgentAccessHost(config.platform);
-    const port = config.env["OPENCLAW_HOST_PORT"] ?? "18789";
-    config.env["OPENCLAW_ALLOWED_ORIGINS"] = [
-      `http://${host}:${port}`,
-      ...(host === "localhost" ? [`http://127.0.0.1:${port}`] : []),
-    ].join(",");
+    config.env["OPENCLAW_ALLOWED_ORIGINS"] = new URL(appConfig.publicBaseUrl).origin;
   }
 }
 
@@ -334,10 +309,10 @@ export const appRouter = t.router({
 
       // OpenClaw: plain HTTP health check
       if (state.config.type === "openclaw") {
-        const port = state.config.env["OPENCLAW_HOST_PORT"];
-        if (!port) return null;
+        const target = await resolveSurfaceTargetUrl(state, "openclaw");
+        if (!target) return null;
         try {
-          const res = await fetch(`http://localhost:${port}/healthz`, {
+          const res = await fetch(new URL("/healthz", target), {
             signal: AbortSignal.timeout(3000),
           });
           return { ok: res.ok, httpStatus: res.status };
@@ -348,10 +323,10 @@ export const appRouter = t.router({
 
       // Moltis: plain HTTP health check (TLS disabled in config).
       if (state.config.type === "moltis") {
-        const port = state.config.env["MOLTIS_HOST_PORT"];
-        if (!port) return null;
+        const target = await resolveSurfaceTargetUrl(state, "moltis");
+        if (!target) return null;
         try {
-          const res = await fetch(`http://localhost:${port}/metrics`, {
+          const res = await fetch(new URL("/metrics", target), {
             signal: AbortSignal.timeout(3000),
           });
           return { ok: res.ok, httpStatus: res.status };

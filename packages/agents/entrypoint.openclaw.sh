@@ -36,6 +36,7 @@ const allowedOrigins = (process.env.OPENCLAW_ALLOWED_ORIGINS || '')
   .split(',')
   .map((value) => value.trim())
   .filter(Boolean);
+const autoPair = /^(1|true|yes|on)$/i.test(process.env.DEVLET_OPENCLAW_AUTO_PAIR || '');
 
 function buildModelRegistry() {
   if (provider === 'nvidia' && process.env.NVIDIA_API_KEY) {
@@ -98,6 +99,12 @@ const config = {
       mode: 'token',
       token,
     },
+    ...(autoPair
+      ? {
+          allowInsecureAuth: true,
+          dangerouslyDisableDeviceAuth: true,
+        }
+      : {}),
     ...(allowedOrigins.length > 0
       ? {
           controlUi: {
@@ -130,6 +137,9 @@ const config = {
 
 fs.writeFileSync(home + '/.openclaw/openclaw.json', JSON.stringify(config, null, 2));
 console.log('[devlet] openclaw.json written');
+if (autoPair) {
+  console.log('[devlet] OpenClaw auto-pair enabled');
+}
 JSEOF
 
 # ─── Write workspace bootstrap files ─────────────────────────────────────────

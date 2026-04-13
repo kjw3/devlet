@@ -1,21 +1,88 @@
 import { Readable } from "node:stream";
+import httpProxy from "http-proxy";
 import cors from "@fastify/cors";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "./routers/index.js";
 import { getAgentRunning } from "./platforms/dispatch.js";
 import { probePortainer } from "./platforms/portainer.js";
-import { listAgentStates, saveAgentState } from "./agents/state.js";
+import { listAgentStates, loadAgentState, saveAgentState } from "./agents/state.js";
+import { validateAgentProxyToken, resolveSurfaceTargetUrl, type AgentAccessSurface } from "./agent-access.js";
+import { config } from "./config.js";
 
 const server = Fastify();
 const authToken = process.env["DEVLET_AUTH_TOKEN"];
+const agentUiProxy = httpProxy.createProxyServer({
+  changeOrigin: true,
+  secure: false,
+  ws: true,
+  xfwd: true,
+});
 
 if (!authToken) {
   throw new Error("DEVLET_AUTH_TOKEN must be set before starting the server");
 }
 
 await server.register(cors, {
-  origin: "http://localhost:3000",
+  origin: new URL(config.publicBaseUrl).origin,
+});
+
+type ProxyResolution =
+  | { ok: true; targetUrl: string; rewrittenPath: string }
+  | { ok: false; statusCode: number; message: string };
+
+function parseSurface(value: string): AgentAccessSurface | null {
+  return value === "terminal" || value === "openclaw" || value === "moltis" ? value : null;
+}
+
+async function resolveAgentProxyRequest(requestUrl: string): Promise<ProxyResolution> {
+  const parsed = new URL(requestUrl, "http://localhost:3001");
+  const parts = parsed.pathname.split("/").filter(Boolean);
+
+  if (parts[0] !== "agent-access" || parts.length < 4) {
+    return { ok: false, statusCode: 404, message: "Not found" };
+  }
+
+  const agentId = parts[1] ?? "";
+  const surface = parseSurface(parts[2] ?? "");
+  const proxyToken = parts[3] ?? "";
+  if (!surface) {
+    return { ok: false, statusCode: 404, message: "Unknown agent access surface" };
+  }
+
+  const state = await loadAgentState(agentId).catch(() => null);
+  if (!state) {
+    return { ok: false, statusCode: 404, message: "Agent not found" };
+  }
+
+  const targetUrl = await resolveSurfaceTargetUrl(state, surface);
+  if (!targetUrl) {
+    return { ok: false, statusCode: 404, message: "Requested surface is not available for this agent" };
+  }
+
+  if (!validateAgentProxyToken(agentId, surface, targetUrl, proxyToken)) {
+    return { ok: false, statusCode: 401, message: "Invalid proxy token" };
+  }
+
+  const suffix = parts.slice(4).join("/");
+  const pathname = suffix ? `/${suffix}` : "/";
+  const query = parsed.searchParams.toString();
+
+  return {
+    ok: true,
+    targetUrl,
+    rewrittenPath: `${pathname}${query ? `?${query}` : ""}`,
+  };
+}
+
+agentUiProxy.on("error", (_error, _req, res) => {
+  if (!res || "headersSent" in res && res.headersSent) {
+    return;
+  }
+  if ("writeHead" in res) {
+    res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
+    res.end("Agent UI proxy error");
+  }
 });
 
 server.all("/trpc/*", async (request: FastifyRequest, reply: FastifyReply) => {
@@ -71,6 +138,42 @@ server.all("/trpc/*", async (request: FastifyRequest, reply: FastifyReply) => {
 
   const buffer = Buffer.from(await response.arrayBuffer());
   return reply.send(buffer);
+});
+
+server.all("/agent-access/:agentId/:surface/:proxyToken", async (request: FastifyRequest, reply: FastifyReply) => {
+  const resolution = await resolveAgentProxyRequest(request.url);
+  if (!resolution.ok) {
+    reply.code(resolution.statusCode);
+    return reply.send(resolution.message);
+  }
+
+  request.raw.url = resolution.rewrittenPath;
+  reply.hijack();
+  agentUiProxy.web(request.raw, reply.raw, { target: resolution.targetUrl });
+});
+
+server.all("/agent-access/:agentId/:surface/:proxyToken/*", async (request: FastifyRequest, reply: FastifyReply) => {
+  const resolution = await resolveAgentProxyRequest(request.url);
+  if (!resolution.ok) {
+    reply.code(resolution.statusCode);
+    return reply.send(resolution.message);
+  }
+
+  request.raw.url = resolution.rewrittenPath;
+  reply.hijack();
+  agentUiProxy.web(request.raw, reply.raw, { target: resolution.targetUrl });
+});
+
+server.server.on("upgrade", async (request, socket, head) => {
+  const resolution = await resolveAgentProxyRequest(request.url ?? "/");
+  if (!resolution.ok) {
+    socket.write(`HTTP/1.1 ${resolution.statusCode} ${resolution.message}\r\nConnection: close\r\n\r\n`);
+    socket.destroy();
+    return;
+  }
+
+  request.url = resolution.rewrittenPath;
+  agentUiProxy.ws(request, socket, head, { target: resolution.targetUrl });
 });
 
 await server.listen({

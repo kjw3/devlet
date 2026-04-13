@@ -48,6 +48,10 @@ const SHARED_AGENT_TOOL_KEYS = [
   "TAVILY_API_KEY",
 ] as const;
 
+const OPENCLAW_RUNTIME_KEYS = [
+  "DEVLET_OPENCLAW_AUTO_PAIR",
+] as const;
+
 // Provider priority order — matches the entrypoint detection logic.
 const PROVIDER_PRIORITY = ["litellm", "openrouter", "anthropic", "openai", "gemini", "nvidia"] as const;
 type Provider = typeof PROVIDER_PRIORITY[number];
@@ -107,7 +111,11 @@ export async function buildContainerEnv(config: AgentConfig): Promise<string[]> 
   // so only pass the selected provider's credentials plus shared tool keys.
   const forwardedKeys =
     config.type === "openclaw" && resolvedProvider
-      ? [...(OPENCLAW_PROVIDER_KEYS[resolvedProvider] ?? []), ...SHARED_AGENT_TOOL_KEYS]
+      ? [
+          ...(OPENCLAW_PROVIDER_KEYS[resolvedProvider] ?? []),
+          ...SHARED_AGENT_TOOL_KEYS,
+          ...OPENCLAW_RUNTIME_KEYS,
+        ]
       : [...FORWARDED_KEYS];
   const platformKeys = [...new Set(forwardedKeys)]
     .filter((key) => process.env[key])
