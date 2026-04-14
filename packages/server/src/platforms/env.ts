@@ -72,7 +72,10 @@ export async function buildContainerEnv(config: AgentConfig): Promise<string[]> 
     `DEVLET_AGENT_TYPE=${config.type}`,
     `DEVLET_AGENT_NAME=${config.name}`,
     `DEVLET_AGENT_ROLE=${config.role}`,
-    `DEVLET_AGENT_PERSISTENT=${config.persistent}`,
+    // Keep-alive is controlled by onComplete, not the placement-level persistent flag.
+    // "idle" = stay alive after mission; "terminate" = exit. config.persistent only
+    // affects scheduler placement (Portainer/Proxmox vs ephemeral Docker).
+    `DEVLET_AGENT_PERSISTENT=${config.mission.onComplete !== "terminate"}`,
     ...(config.mission.description
       ? [`DEVLET_AGENT_MISSION=${config.mission.description}`]
       : []),
