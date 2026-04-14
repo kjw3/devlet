@@ -8,8 +8,6 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - devlet_state:/root/.devlet
-    env_file:
-      - .env
     labels:
       - "devlet.managed=true"
 
