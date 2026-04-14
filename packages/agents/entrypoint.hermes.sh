@@ -42,6 +42,8 @@ EOF
 #   openai    → custom  (when OPENAI_BASE_URL is set) or openai-codex
 #   anthropic → anthropic
 #   openrouter→ openrouter
+#   nvidia    → custom  (NVIDIA NIM: integrate.api.nvidia.com/v1)
+#   groq      → custom  (Groq: api.groq.com/openai/v1)
 #   <empty>   → auto-detect from available keys
 
 HERMES_PROVIDER=""
@@ -74,6 +76,20 @@ case "$PROVIDER" in
     fi
     HERMES_NAME="${MODEL:-gpt-4o}"
     ;;
+  nvidia)
+    # NVIDIA NIM — OpenAI-compatible custom endpoint
+    HERMES_PROVIDER="custom"
+    HERMES_NAME="${MODEL:-meta/llama-3.1-70b-instruct}"
+    HERMES_BASE_URL="https://integrate.api.nvidia.com/v1"
+    HERMES_API_KEY="${NVIDIA_API_KEY:-}"
+    ;;
+  groq)
+    # Groq — OpenAI-compatible custom endpoint
+    HERMES_PROVIDER="custom"
+    HERMES_NAME="${MODEL:-llama-3.3-70b-versatile}"
+    HERMES_BASE_URL="https://api.groq.com/openai/v1"
+    HERMES_API_KEY="${GROQ_API_KEY:-}"
+    ;;
   "")
     # No provider configured — pick best available from keys
     if [ -n "${LITELLM_BASE_URL:-}" ]; then
@@ -90,6 +106,16 @@ case "$PROVIDER" in
     elif [ -n "${OPENAI_API_KEY:-}" ]; then
       HERMES_PROVIDER="openai-codex"
       HERMES_NAME="${MODEL:-gpt-4o}"
+    elif [ -n "${NVIDIA_API_KEY:-}" ]; then
+      HERMES_PROVIDER="custom"
+      HERMES_NAME="${MODEL:-meta/llama-3.1-70b-instruct}"
+      HERMES_BASE_URL="https://integrate.api.nvidia.com/v1"
+      HERMES_API_KEY="${NVIDIA_API_KEY}"
+    elif [ -n "${GROQ_API_KEY:-}" ]; then
+      HERMES_PROVIDER="custom"
+      HERMES_NAME="${MODEL:-llama-3.3-70b-versatile}"
+      HERMES_BASE_URL="https://api.groq.com/openai/v1"
+      HERMES_API_KEY="${GROQ_API_KEY}"
     fi
     ;;
 esac
