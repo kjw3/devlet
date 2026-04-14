@@ -355,7 +355,17 @@ async function ensureAgentAccessEnv(config: AgentConfig): Promise<void> {
   }
 
   if (config.type === "openclaw") {
-    config.env["OPENCLAW_ALLOWED_ORIGINS"] = new URL(appConfig.publicBaseUrl).origin;
+    // OpenClaw is accessed via direct URL (not the devlet proxy) because its
+    // frontend uses absolute paths for assets and WebSocket that a path-prefix
+    // proxy cannot reroute. The browser origin is therefore the direct host:port
+    // URL, not the devlet publicBaseUrl. Inject both so the agent still works if
+    // accessed through a browser that somehow has the devlet URL as origin.
+    const openclawHostPort = config.env["OPENCLAW_HOST_PORT"];
+    const agentHost = await resolveAgentAccessHost(config.platform);
+    const directOrigin = openclawHostPort ? `http://${agentHost}:${openclawHostPort}` : null;
+    const allowedOrigins = [new URL(appConfig.publicBaseUrl).origin];
+    if (directOrigin) allowedOrigins.push(directOrigin);
+    config.env["OPENCLAW_ALLOWED_ORIGINS"] = allowedOrigins.join(",");
     if (!config.env["OPENCLAW_TRUSTED_PROXIES"]) {
       config.env["OPENCLAW_TRUSTED_PROXIES"] = [
         "127.0.0.1/32",
