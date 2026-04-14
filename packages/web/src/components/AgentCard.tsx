@@ -7,6 +7,7 @@ interface AgentCardProps {
   agent: AgentState;
   onFire?: (id: string) => void;
   onDelete?: (id: string) => void;
+  onStart?: (id: string) => void;
 }
 
 const PLATFORM_LABELS = {
@@ -21,7 +22,7 @@ function progressPct(agent: AgentState): number {
   return Math.round((agent.missionProgress.completed.length / total) * 100);
 }
 
-export function AgentCard({ agent, onFire, onDelete }: AgentCardProps) {
+export function AgentCard({ agent, onFire, onDelete, onStart }: AgentCardProps) {
   const navigate = useNavigate();
   const pct = progressPct(agent);
   const isActive = agent.status === "running" || agent.status === "bootstrapping";
@@ -103,15 +104,26 @@ export function AgentCard({ agent, onFire, onDelete }: AgentCardProps) {
             </button>
           )}
           {agent.status === "terminated" && (
-            <button
-              className="btn-danger text-[10px]"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete?.(agent.config.id);
-              }}
-            >
-              delete
-            </button>
+            <>
+              <button
+                className="btn-ghost text-[10px]"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStart?.(agent.config.id);
+                }}
+              >
+                start
+              </button>
+              <button
+                className="btn-danger text-[10px]"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete?.(agent.config.id);
+                }}
+              >
+                delete
+              </button>
+            </>
           )}
         </div>
       </div>
