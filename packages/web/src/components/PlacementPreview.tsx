@@ -92,6 +92,9 @@ export function PlacementPreview({
 }: PlacementPreviewProps) {
   const [showOverrides, setShowOverrides] = useState(false);
 
+  // Platforms not yet fully implemented — hidden from placement options.
+  const COMING_SOON_PLATFORM_TYPES = new Set(["proxmox"]);
+
   const schedulerContext: SchedulerContext = {
     docker: context?.docker ?? MOCK_DOCKER_STATUS,
     portainer: context?.portainer ?? MOCK_PORTAINER_STATUS,
@@ -100,12 +103,20 @@ export function PlacementPreview({
 
   const decision: PlacementDecision = scheduleAgent(requirements, schedulerContext);
 
-  const effective = override ?? decision.placement;
+  // If the scheduler picked a coming-soon platform, suppress it.
+  const effectivePlacement =
+    decision.placement && COMING_SOON_PLATFORM_TYPES.has(decision.placement.type)
+      ? undefined
+      : decision.placement;
+
+  const effective = override ?? effectivePlacement;
   const effectiveLabel = effective ? platformLabel(effective) : "none";
   const isOverridden = override !== undefined;
 
   const alternatives = decision.scores.filter(
-    (s) => s.platform.type !== decision.winner?.platform.type
+    (s) =>
+      s.platform.type !== decision.winner?.platform.type &&
+      !COMING_SOON_PLATFORM_TYPES.has(s.platform.type)
   );
 
   // Surface-level outcome display

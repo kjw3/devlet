@@ -143,6 +143,8 @@ const AGENT_TYPE_SUBTITLES: Record<string, string> = {
   nemoclaw:      "NVIDIA",
 };
 
+const COMING_SOON_AGENT_TYPES = new Set(["nanoclaw", "nemoclaw"]);
+
 // ─── Proxmox disconnected sentinel (used to exclude Proxmox for single-task) ──
 
 const DISCONNECTED_PROXMOX: ProxmoxStatus = { connected: false, nodes: [] };
@@ -504,20 +506,24 @@ export function HireAgent() {
               <div className="grid grid-cols-5 gap-2">
                 {visibleTypes.map((type) => {
                   const selected = form.type === type;
+                  const comingSoon = COMING_SOON_AGENT_TYPES.has(type);
                   return (
                     <button
                       key={type}
-                      onClick={() => selectType(type)}
-                      title={AGENT_TYPE_DESCRIPTIONS[type]}
+                      onClick={() => !comingSoon && selectType(type)}
+                      title={comingSoon ? "coming soon" : AGENT_TYPE_DESCRIPTIONS[type]}
+                      disabled={comingSoon}
                       className={`flex flex-col items-center gap-2 p-3 rounded-lg border transition-all ${
-                        selected
+                        comingSoon
+                          ? "border-surface-border bg-surface-raised opacity-40 cursor-not-allowed"
+                          : selected
                           ? "border-accent-cyan/60 bg-accent-cyan/8 shadow-[0_0_12px_rgba(6,182,212,0.15)]"
                           : "border-surface-border bg-surface-raised hover:border-gray-600 hover:bg-surface-overlay"
                       }`}
                     >
                       <div className="relative">
                         {AGENT_ICONS[type]}
-                        {selected && (
+                        {selected && !comingSoon && (
                           <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-accent-cyan rounded-full flex items-center justify-center">
                             <svg viewBox="0 0 10 10" className="w-2 h-2" fill="none">
                               <path d="M2 5L4.5 7.5L8 3" stroke="black" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -526,11 +532,11 @@ export function HireAgent() {
                         )}
                       </div>
                       <div className="text-center">
-                        <div className={`text-[11px] font-semibold leading-tight ${selected ? "text-accent-cyan" : "text-gray-200"}`}>
+                        <div className={`text-[11px] font-semibold leading-tight ${selected && !comingSoon ? "text-accent-cyan" : "text-gray-200"}`}>
                           {AGENT_TYPE_LABELS[type]}
                         </div>
-                        <div className="text-[10px] text-gray-600 mt-0.5 leading-tight">
-                          {AGENT_TYPE_SUBTITLES[type]}
+                        <div className="text-[10px] mt-0.5 leading-tight text-gray-600">
+                          {comingSoon ? "coming soon" : AGENT_TYPE_SUBTITLES[type]}
                         </div>
                       </div>
                     </button>
