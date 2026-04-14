@@ -97,7 +97,7 @@ function ConnectionsPanel({ agentId, access }: {
 
 function TerminalSection({ access }: { access: NonNullable<AgentState["access"]>["terminal"] }) {
   if (!access) return null;
-  const { url, username, password: token } = access;
+  const { url, password: token } = access;
   const [tokenVisible, setTokenVisible] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
 
@@ -126,9 +126,6 @@ function TerminalSection({ access }: { access: NonNullable<AgentState["access"]>
         {copiedToken && (
           <span className="text-[10px] text-accent-cyan animate-pulse flex-shrink-0">password copied</span>
         )}
-      </ConnRow>
-      <ConnRow label="user">
-        <span className="text-[12px] font-mono text-gray-400">{username}</span>
       </ConnRow>
       {token && (
         <ConnRow label="password">
