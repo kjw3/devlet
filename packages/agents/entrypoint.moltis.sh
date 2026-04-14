@@ -8,6 +8,7 @@ set -e
 . /usr/local/bin/devlet-coding-init
 
 MISSION="${DEVLET_AGENT_MISSION:-}"
+AGENT_NAME="${DEVLET_AGENT_NAME:-Moltis}"
 PORT="${MOLTIS_PORT:-13131}"
 PROVIDER="${MOLTIS_PROVIDER:-anthropic}"
 API_KEY="${MOLTIS_API_KEY:-${ANTHROPIC_API_KEY:-}}"
@@ -20,6 +21,9 @@ echo "[devlet] moltis starting (port=$PORT provider=$PROVIDER)..."
 #   port is under [server], provider keys under [providers.<name>].
 mkdir -p ~/.config/moltis
 cat > ~/.config/moltis/moltis.toml <<EOF
+[identity]
+name = "${AGENT_NAME}"
+
 [server]
 port = ${PORT}
 
