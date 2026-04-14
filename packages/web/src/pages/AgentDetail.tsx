@@ -319,8 +319,10 @@ export function AgentDetail() {
   const { config, status, missionProgress, error: agentError } = agent;
   const logs = liveLogs ?? agent.logs;
 
+  const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
   function copyLogs() {
-    void navigator.clipboard.writeText(logs.join("\n")).then(() => {
+    const clean = logs.map((l) => l.replace(ANSI_RE, "")).join("\n");
+    void navigator.clipboard.writeText(clean).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
