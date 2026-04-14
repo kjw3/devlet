@@ -7,9 +7,9 @@ export const AGENT_TYPES: AgentType[] = [
   "pi",
   "gemini",
   "openclaw",
-  "nanoclaw",
   "hermes",
   "moltis",
+  "nanoclaw",
   "nemoclaw",
 ];
 
