@@ -584,13 +584,14 @@ export const appRouter = t.router({
 
     restart: authProcedure.input(z.string()).mutation(async ({ input }) => {
       const state = await loadAgentState(input);
-      await stopAgent(state.platformRef);
-      await removeAgent(state.platformRef);
+      // Swallow stop/remove errors — container may already be gone (terminated state).
+      await stopAgent(state.platformRef).catch(() => {});
+      await removeAgent(state.platformRef).catch(() => {});
       if (state.config.platform.type === "portainer") {
         await removePortainerContainerByName(
           state.config.platform.endpointId,
           `devlet-${state.config.id}`
-        );
+        ).catch(() => {});
       }
       await refreshAgentAccessPorts(state.config);
       const platformRef = await provisionAgent(state.config);
@@ -598,7 +599,7 @@ export const appRouter = t.router({
       state.status = "running";
       delete state.error;
       state.config.lastActiveAt = new Date().toISOString();
-      state.logs.push("Restart requested — reprovisioning agent");
+      state.logs.push(`${state.status === "terminated" ? "Start" : "Restart"} requested — reprovisioning agent`);
       await saveAgentState(state);
       return sanitizeAgentState(state);
     }),

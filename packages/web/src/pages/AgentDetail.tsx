@@ -397,13 +397,22 @@ export function AgentDetail() {
             </>
           )}
           {status === "terminated" && (
-            <button
-              className="btn-danger"
-              disabled={deleteMutation.isPending}
-              onClick={() => deleteMutation.mutate(config.id)}
-            >
-              {deleteMutation.isPending ? "deleting..." : "delete"}
-            </button>
+            <>
+              <button
+                className="btn-ghost"
+                disabled={restartMutation.isPending}
+                onClick={() => restartMutation.mutate(config.id)}
+              >
+                {restartMutation.isPending ? "starting..." : "start"}
+              </button>
+              <button
+                className="btn-danger"
+                disabled={deleteMutation.isPending}
+                onClick={() => deleteMutation.mutate(config.id)}
+              >
+                {deleteMutation.isPending ? "deleting..." : "delete"}
+              </button>
+            </>
           )}
         </div>
       </div>
