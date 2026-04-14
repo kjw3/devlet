@@ -149,7 +149,6 @@ async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
       ...access,
       terminal: {
         url: buildAgentProxyUrl(state.config.id, "terminal", terminalTarget),
-        username: "devlet",
       },
     };
   }

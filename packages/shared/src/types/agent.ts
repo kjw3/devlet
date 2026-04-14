@@ -79,8 +79,6 @@ export interface AgentState {
   access?: {
     terminal?: {
       url: string;
-      username: string;
-      password?: string;
     };
     ssh?: {
       host: string;

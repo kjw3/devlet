@@ -97,55 +97,20 @@ function ConnectionsPanel({ agentId, access }: {
 
 function TerminalSection({ access }: { access: NonNullable<AgentState["access"]>["terminal"] }) {
   if (!access) return null;
-  const { url, password: token } = access;
-  const [tokenVisible, setTokenVisible] = useState(false);
-  const [copiedToken, setCopiedToken] = useState(false);
-
-  const copyToken = useCallback(() => {
-    if (!token) return;
-    void navigator.clipboard.writeText(token).then(() => {
-      setCopiedToken(true);
-      setTimeout(() => setCopiedToken(false), 1500);
-    });
-  }, [token]);
 
   return (
     <div>
       <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1.5">terminal</div>
       <ConnRow label="url">
         <a
-          href={url}
+          href={access.url}
           target="_blank"
           rel="noopener noreferrer"
-          onClick={token ? copyToken : undefined}
-          title={token ? "opens tab · copies password" : undefined}
           className="text-[12px] font-mono text-accent-cyan hover:underline truncate"
         >
-          {url}
+          {access.url}
         </a>
-        {copiedToken && (
-          <span className="text-[10px] text-accent-cyan animate-pulse flex-shrink-0">password copied</span>
-        )}
       </ConnRow>
-      {token && (
-        <ConnRow label="password">
-          <span className="text-[12px] font-mono text-gray-400 flex-1 truncate">
-            {tokenVisible ? token : "••••••••••••••••••••••••••••••••"}
-          </span>
-          <button
-            onClick={() => setTokenVisible((v) => !v)}
-            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
-          >
-            {tokenVisible ? "hide" : "show"}
-          </button>
-          <button
-            onClick={copyToken}
-            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
-          >
-            {copiedToken ? "copied ✓" : "copy"}
-          </button>
-        </ConnRow>
-      )}
     </div>
   );
 }
