@@ -4,7 +4,7 @@ services:
     container_name: devlet-server
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${SERVER_PORT:-3001}:3001"
+      - "${SERVER_PORT:-3001}:3001"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - devlet_state:/root/.devlet
@@ -16,7 +16,7 @@ services:
     container_name: devlet-web
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${WEB_PORT:-3000}:80"
+      - "${WEB_PORT:-3000}:80"
     depends_on:
       - devlet-server
     labels:
