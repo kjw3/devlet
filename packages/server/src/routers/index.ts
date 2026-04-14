@@ -167,20 +167,25 @@ async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
   }
 
   if (state.config.type === "openclaw" && openclawPort && openclawTarget) {
+    // Use direct URL rather than the devlet HMAC proxy. OpenClaw is a WebSocket-heavy
+    // SPA: its frontend constructs absolute-path WS URLs that bypass the proxy prefix,
+    // causing 1006 disconnects. OpenClaw's own gateway token (passed as #token=… by
+    // the UI) provides authentication, so the proxy layer is not needed here.
     access = {
       ...access,
       openclaw: {
-        url: buildAgentProxyUrl(state.config.id, "openclaw", openclawTarget),
+        url: openclawTarget,
         ...(openclawToken ? { token: openclawToken } : {}),
       },
     };
   }
 
   if (state.config.type === "moltis" && moltisTarget) {
+    // Same reasoning as openclaw — direct URL avoids path-prefix WebSocket issues.
     access = {
       ...access,
       moltis: {
-        url: buildAgentProxyUrl(state.config.id, "moltis", moltisTarget),
+        url: moltisTarget,
       },
     };
   }
