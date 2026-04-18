@@ -1,6 +1,6 @@
 services:
   devlet-server:
-    image: ${SERVER_IMAGE:-ghcr.io/kjw3/devlet-server:sha-6e97e6c}
+    image: ${SERVER_IMAGE:-ghcr.io/kjw3/devlet-server:latest}
     container_name: devlet-server
     restart: unless-stopped
     environment:
@@ -52,7 +52,7 @@ services:
       - "devlet.managed=true"
 
   devlet-web:
-    image: ${WEB_IMAGE:-ghcr.io/kjw3/devlet-web:sha-6e97e6c}
+    image: ${WEB_IMAGE:-ghcr.io/kjw3/devlet-web:latest}
     container_name: devlet-web
     restart: unless-stopped
     ports:
