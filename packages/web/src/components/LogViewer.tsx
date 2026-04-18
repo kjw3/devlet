@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // Strips ANSI SGR escape sequences (colors, bold, dim, etc.) that container
 // logs often contain. Matches ESC [ ... <final-byte> patterns.
@@ -14,16 +14,43 @@ interface LogViewerProps {
 }
 
 export function LogViewer({ logs, className = "", follow = true }: LogViewerProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFollowing, setIsFollowing] = useState(follow);
+  const previousLogCountRef = useRef(0);
 
   useEffect(() => {
-    if (follow) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    setIsFollowing(follow);
+  }, [follow]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const previousLogCount = previousLogCountRef.current;
+    const hasNewLogs = logs.length > previousLogCount;
+    previousLogCountRef.current = logs.length;
+
+    if (follow && isFollowing && hasNewLogs) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: previousLogCount === 0 ? "auto" : "smooth",
+      });
     }
-  }, [logs, follow]);
+  }, [logs, follow, isFollowing]);
+
+  function handleScroll() {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const atBottom = distanceFromBottom <= 12;
+    setIsFollowing(atBottom);
+  }
 
   return (
     <div
+      ref={containerRef}
+      onScroll={handleScroll}
       className={`bg-surface border border-surface-border rounded-sm p-3 overflow-y-auto font-mono text-[11px] leading-relaxed ${className}`}
     >
       {logs.length === 0 ? (
@@ -35,7 +62,6 @@ export function LogViewer({ logs, className = "", follow = true }: LogViewerProp
           </div>
         ))
       )}
-      <div ref={bottomRef} />
     </div>
   );
 }

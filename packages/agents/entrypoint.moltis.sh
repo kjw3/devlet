@@ -16,8 +16,8 @@ API_KEY="${MOLTIS_API_KEY:-${ANTHROPIC_API_KEY:-}}"
 # MOLTIS_PASSWORD is required by the unattended-setup bypass: when all three of
 # MOLTIS_PASSWORD, MOLTIS_PROVIDER, MOLTIS_API_KEY are set before first launch,
 # Moltis skips the browser configuration wizard entirely.
-# We use a stable value derived from the agent name; [auth] disabled = true in
-# the toml means this password is never actually enforced for access.
+# Devlet uses a stable value derived from the agent name so the initial password
+# is predictable and can be shown in the UI if Moltis still prompts for it.
 MOLTIS_PASSWORD="${MOLTIS_PASSWORD:-devlet-${AGENT_NAME}}"
 
 export MOLTIS_PASSWORD MOLTIS_PROVIDER="${PROVIDER}" MOLTIS_API_KEY="${API_KEY}"

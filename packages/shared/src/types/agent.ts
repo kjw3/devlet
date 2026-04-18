@@ -92,6 +92,7 @@ export interface AgentState {
     };
     moltis?: {
       url: string;
+      password?: string;
     };
   };
 }

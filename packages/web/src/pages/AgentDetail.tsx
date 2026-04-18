@@ -235,7 +235,17 @@ function OpenClawSection({ agentId, access }: { agentId: string; access: NonNull
 
 function MoltisSection({ agentId, access }: { agentId: string; access: NonNullable<AgentState["access"]>["moltis"] }) {
   if (!access) return null;
-  const { url } = access;
+  const { url, password } = access;
+  const [copiedPassword, setCopiedPassword] = useState(false);
+  const [passwordVisible, setPasswordVisible] = useState(false);
+
+  const copyPassword = useCallback(() => {
+    if (!password) return;
+    void navigator.clipboard.writeText(password).then(() => {
+      setCopiedPassword(true);
+      setTimeout(() => setCopiedPassword(false), 1500);
+    });
+  }, [password]);
 
   const { data: health } = trpc.agents.health.useQuery(agentId, { refetchInterval: 5_000 });
   const gwStatus = health === undefined ? "checking" : health?.ok ? "ready" : "unreachable";
@@ -259,8 +269,29 @@ function MoltisSection({ agentId, access }: { agentId: string; access: NonNullab
         </a>
       </ConnRow>
       <ConnRow label="auth">
-        <span className="text-[12px] text-gray-500">disabled (local gateway)</span>
+        <span className="text-[12px] text-gray-500">
+          {password ? "use the initial password below if Moltis prompts for one" : "not available"}
+        </span>
       </ConnRow>
+      {password && (
+        <ConnRow label="password">
+          <span className="text-[12px] font-mono text-gray-400 flex-1 truncate">
+            {passwordVisible ? password : "••••••••••••••••••••••••••••••••"}
+          </span>
+          <button
+            onClick={() => setPasswordVisible((v) => !v)}
+            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
+          >
+            {passwordVisible ? "hide" : "show"}
+          </button>
+          <button
+            onClick={copyPassword}
+            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
+          >
+            {copiedPassword ? "copied ✓" : "copy"}
+          </button>
+        </ConnRow>
+      )}
     </div>
   );
 }

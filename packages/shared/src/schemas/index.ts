@@ -147,6 +147,7 @@ export const AgentStateSchema = z.object({
     }).optional(),
     moltis: z.object({
       url: z.string().url(),
+      password: z.string().optional(),
     }).optional(),
   }).optional(),
 });

@@ -125,6 +125,10 @@ function sanitizeEnvValue(key: string, value: string): string | null {
   return value;
 }
 
+function getMoltisInitialPassword(config: AgentConfig): string {
+  return config.env["MOLTIS_PASSWORD"] ?? `devlet-${config.name}`;
+}
+
 async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
   const env = Object.fromEntries(
     Object.entries(state.config.env)
@@ -185,6 +189,7 @@ async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
       ...access,
       moltis: {
         url: moltisTarget,
+        password: getMoltisInitialPassword(state.config),
       },
     };
   }
@@ -373,6 +378,10 @@ async function ensureAgentAccessEnv(config: AgentConfig): Promise<void> {
         "192.168.0.0/16",
       ].join(",");
     }
+  }
+
+  if (config.type === "moltis" && !config.env["MOLTIS_PASSWORD"]) {
+    config.env["MOLTIS_PASSWORD"] = getMoltisInitialPassword(config);
   }
 }
 
