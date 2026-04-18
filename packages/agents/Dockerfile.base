@@ -53,6 +53,7 @@ ARG REPOSITORY_URL=https://github.com/kjw3/devlet
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates bash procps \
     ripgrep fd-find jq python3 openssh-client openssh-server less make \
+    nano vim-tiny \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/fdfind /usr/local/bin/fd
 
@@ -90,7 +91,10 @@ COPY packages/agents/entrypoint.base.sh /entrypoint.sh
 COPY packages/agents/devlet-terminal.sh /usr/local/bin/devlet-terminal
 COPY packages/agents/devlet-ssh.sh /usr/local/bin/devlet-ssh
 COPY packages/agents/devlet-coding-init.sh /usr/local/bin/devlet-coding-init
-RUN chmod +x /entrypoint.sh /usr/local/bin/devlet-terminal /usr/local/bin/devlet-ssh /usr/local/bin/devlet-coding-init
+COPY packages/agents/devlet-services.sh /usr/local/bin/devlet-services
+COPY packages/agents/devlet-service-runner.py /usr/local/bin/devlet-service-runner
+COPY packages/agents/devlet-systemctl.sh /usr/local/bin/systemctl
+RUN chmod +x /entrypoint.sh /usr/local/bin/devlet-terminal /usr/local/bin/devlet-ssh /usr/local/bin/devlet-coding-init /usr/local/bin/devlet-services /usr/local/bin/devlet-service-runner /usr/local/bin/systemctl
 
 # Create non-root agent user — coding agents refuse --dangerously-skip-permissions as root
 RUN useradd --create-home --user-group --shell /bin/bash agent && \

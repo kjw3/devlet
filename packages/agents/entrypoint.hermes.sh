@@ -6,6 +6,7 @@ set -e
 . /usr/local/bin/devlet-terminal
 . /usr/local/bin/devlet-ssh
 . /usr/local/bin/devlet-coding-init
+. /usr/local/bin/devlet-services
 
 MISSION="${DEVLET_AGENT_MISSION:-}"
 PERSISTENT="${DEVLET_AGENT_PERSISTENT:-false}"
