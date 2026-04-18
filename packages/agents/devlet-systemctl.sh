@@ -14,6 +14,13 @@ usage() {
   exit 1
 }
 
+canonical_unit_name() {
+  case "$1" in
+    *.service) printf '%s' "$1" ;;
+    *) printf '%s.service' "$1" ;;
+  esac
+}
+
 unit_path() {
   printf '%s/%s' "$SYSTEMD_USER_DIR" "$1"
 }
@@ -35,7 +42,7 @@ is_pid_alive() {
 }
 
 start_unit() {
-  unit="$1"
+  unit="$(canonical_unit_name "$1")"
   [ -f "$(unit_path "$unit")" ] || { echo "Unit $unit not found." >&2; exit 1; }
 
   pid_file="$(supervisor_pid_file "$unit")"
@@ -54,7 +61,7 @@ start_unit() {
 }
 
 stop_unit() {
-  unit="$1"
+  unit="$(canonical_unit_name "$1")"
   pid_file="$(supervisor_pid_file "$unit")"
   if [ ! -f "$pid_file" ]; then
     echo "$unit is not running"
@@ -76,7 +83,7 @@ stop_unit() {
 }
 
 status_unit() {
-  unit="$1"
+  unit="$(canonical_unit_name "$1")"
   pid_file="$(supervisor_pid_file "$unit")"
   if [ ! -f "$pid_file" ]; then
     echo "$unit inactive"
@@ -92,7 +99,7 @@ status_unit() {
 }
 
 is_active_unit() {
-  unit="$1"
+  unit="$(canonical_unit_name "$1")"
   pid_file="$(supervisor_pid_file "$unit")"
   [ -f "$pid_file" ] || return 3
   pid="$(cat "$pid_file" 2>/dev/null || true)"
@@ -100,14 +107,14 @@ is_active_unit() {
 }
 
 enable_unit() {
-  unit="$1"
+  unit="$(canonical_unit_name "$1")"
   [ -f "$(unit_path "$unit")" ] || { echo "Unit $unit not found." >&2; exit 1; }
   : > "$(enabled_marker "$unit")"
   echo "Enabled $unit"
 }
 
 disable_unit() {
-  unit="$1"
+  unit="$(canonical_unit_name "$1")"
   rm -f "$(enabled_marker "$unit")"
   echo "Disabled $unit"
 }
