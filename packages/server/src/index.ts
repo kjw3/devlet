@@ -7,7 +7,12 @@ import { appRouter } from "./routers/index.js";
 import { getAgentRunning } from "./platforms/dispatch.js";
 import { probePortainer } from "./platforms/portainer.js";
 import { listAgentStates, loadAgentState, saveAgentState } from "./agents/state.js";
-import { validateAgentProxyToken, resolveSurfaceTargetUrl, type AgentAccessSurface } from "./agent-access.js";
+import {
+  validateAgentProxyToken,
+  resolveAgentProxyRequestFromHost,
+  resolveSurfaceTargetUrl,
+  type AgentAccessSurface,
+} from "./agent-access.js";
 import { config } from "./config.js";
 import { bootstrapSshKeysFromEnv } from "./ssh/keyStore.js";
 
@@ -92,6 +97,24 @@ agentUiProxy.on("error", (_error, _req, res) => {
   }
 });
 
+server.addHook("onRequest", async (request, reply) => {
+  const resolution = await resolveAgentProxyRequestFromHost(request.headers.host, request.url);
+  if (!resolution) {
+    return;
+  }
+
+  if (!resolution.ok) {
+    reply.code(resolution.statusCode);
+    await reply.send(resolution.message);
+    return reply;
+  }
+
+  request.raw.url = resolution.rewrittenPath;
+  reply.hijack();
+  agentUiProxy.web(request.raw, reply.raw, { target: resolution.targetUrl });
+  return reply;
+});
+
 server.all("/trpc/*", async (request: FastifyRequest, reply: FastifyReply) => {
   const body =
     request.method === "GET" || request.method === "HEAD"
@@ -172,6 +195,19 @@ server.all("/agent-access/:agentId/:surface/:proxyToken/*", async (request: Fast
 });
 
 server.server.on("upgrade", async (request, socket, head) => {
+  const hostResolution = await resolveAgentProxyRequestFromHost(request.headers.host, request.url ?? "/");
+  if (hostResolution) {
+    if (!hostResolution.ok) {
+      socket.write(`HTTP/1.1 ${hostResolution.statusCode} ${hostResolution.message}\r\nConnection: close\r\n\r\n`);
+      socket.destroy();
+      return;
+    }
+
+    request.url = hostResolution.rewrittenPath;
+    agentUiProxy.ws(request, socket, head, { target: toWebSocketTarget(hostResolution.targetUrl) });
+    return;
+  }
+
   const resolution = await resolveAgentProxyRequest(request.url ?? "/");
   if (!resolution.ok) {
     socket.write(`HTTP/1.1 ${resolution.statusCode} ${resolution.message}\r\nConnection: close\r\n\r\n`);

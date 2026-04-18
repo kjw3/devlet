@@ -40,6 +40,8 @@ import {
 } from "../agents/state.js";
 import {
   buildAgentProxyUrl,
+  buildPreferredAgentAccessUrl,
+  buildResolvedAgentSubdomainUrl,
   resolveAgentAccessHost,
   resolveSurfaceTargetUrl,
 } from "../agent-access.js";
@@ -149,10 +151,11 @@ async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
   const sshHost = sshPort ? await resolveAgentAccessHost(state.config.platform) : null;
 
   if (terminalPort && terminalTarget) {
+    const terminalUrl = await buildPreferredAgentAccessUrl(state.config, "terminal");
     access = {
       ...access,
       terminal: {
-        url: buildAgentProxyUrl(state.config.id, "terminal", terminalTarget),
+        url: terminalUrl ?? buildAgentProxyUrl(state.config.id, "terminal", terminalTarget),
       },
     };
   }
@@ -170,25 +173,22 @@ async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
   }
 
   if (state.config.type === "openclaw" && openclawPort && openclawTarget) {
-    // Use direct URL rather than the devlet HMAC proxy. OpenClaw is a WebSocket-heavy
-    // SPA: its frontend constructs absolute-path WS URLs that bypass the proxy prefix,
-    // causing 1006 disconnects. OpenClaw's own gateway token (passed as #token=… by
-    // the UI) provides authentication, so the proxy layer is not needed here.
+    const openclawUrl = await buildResolvedAgentSubdomainUrl(state.config, "openclaw");
     access = {
       ...access,
       openclaw: {
-        url: openclawTarget,
+        url: openclawUrl ?? openclawTarget,
         ...(openclawToken ? { token: openclawToken } : {}),
       },
     };
   }
 
   if (state.config.type === "moltis" && moltisTarget) {
-    // Same reasoning as openclaw — direct URL avoids path-prefix WebSocket issues.
+    const moltisUrl = await buildResolvedAgentSubdomainUrl(state.config, "moltis");
     access = {
       ...access,
       moltis: {
-        url: moltisTarget,
+        url: moltisUrl ?? moltisTarget,
         password: getMoltisInitialPassword(state.config),
       },
     };
@@ -359,16 +359,16 @@ async function ensureAgentAccessEnv(config: AgentConfig): Promise<void> {
   }
 
   if (config.type === "openclaw") {
-    // OpenClaw is accessed via direct URL (not the devlet proxy) because its
-    // frontend uses absolute paths for assets and WebSocket that a path-prefix
-    // proxy cannot reroute. The browser origin is therefore the direct host:port
-    // URL, not the devlet publicBaseUrl. Inject both so the agent still works if
-    // accessed through a browser that somehow has the devlet URL as origin.
+    // OpenClaw validates browser origins for API/WebSocket access.
+    // Allow the main Devlet origin, the direct host:port URL, and the
+    // wildcard-subdomain proxy origin when that feature is configured.
     const openclawHostPort = config.env["OPENCLAW_HOST_PORT"];
     const agentHost = await resolveAgentAccessHost(config.platform);
     const directOrigin = openclawHostPort ? `http://${agentHost}:${openclawHostPort}` : null;
     const allowedOrigins = [new URL(appConfig.publicBaseUrl).origin];
+    const proxiedOriginUrl = await buildResolvedAgentSubdomainUrl(config, "openclaw");
     if (directOrigin) allowedOrigins.push(directOrigin);
+    if (proxiedOriginUrl) allowedOrigins.push(new URL(proxiedOriginUrl).origin);
     config.env["OPENCLAW_ALLOWED_ORIGINS"] = allowedOrigins.join(",");
     if (!config.env["OPENCLAW_TRUSTED_PROXIES"]) {
       config.env["OPENCLAW_TRUSTED_PROXIES"] = [
