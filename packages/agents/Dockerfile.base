@@ -65,6 +65,10 @@ RUN set -eux; \
       *) echo "Unsupported arch: $ARCH" && exit 1 ;; \
     esac; \
     curl -fsSL \
+      --retry 10 \
+      --retry-delay 2 \
+      --retry-max-time 120 \
+      --retry-all-errors \
       "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${TTYD_ARCH}" \
       -o /usr/local/bin/ttyd && \
     chmod +x /usr/local/bin/ttyd
