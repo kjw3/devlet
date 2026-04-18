@@ -94,7 +94,9 @@ RUN chmod +x /entrypoint.sh /usr/local/bin/devlet-terminal /usr/local/bin/devlet
 
 # Create non-root agent user — coding agents refuse --dangerously-skip-permissions as root
 RUN useradd --create-home --user-group --shell /bin/bash agent && \
-    mkdir -p /workspace && chown agent:agent /workspace
+    mkdir -p /workspace /home/agent/.config && chown -R agent:agent /workspace /home/agent
+
+ENV HOME=/home/agent
 
 USER agent
 WORKDIR /workspace
