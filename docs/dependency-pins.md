@@ -17,6 +17,8 @@ Pinned as of 2026-10-13:
 | `@google/gemini-cli` | `0.63.0` | npm registry |
 | `openclaw` npm package | `2026.4.11` | npm registry |
 | `ttyd` | `1.7.7` | upstream Git tags |
+| `herdr` (`herdrdev/herdr`) | `v0.9.3` (sha256-verified in `Dockerfile.base`) | GitHub releases; pick a release at least two weeks old |
+| `tmux` | Debian package | apt |
 | `ghcr.io/astral-sh/uv` | `0.13.0` | upstream Git tags |
 | `NousResearch/hermes-agent` | `v2026.9.24` | upstream Git tags |
 | `qwibitai/nanoclaw` | `v0.9.10` | upstream Git tags |

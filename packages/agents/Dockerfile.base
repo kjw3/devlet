@@ -26,6 +26,9 @@ FROM ${NODE_IMAGE}
 
 ARG PNPM_VERSION=10.33.0
 ARG TTYD_VERSION=1.7.7
+ARG HERDR_VERSION=v0.9.3
+ARG HERDR_SHA256_X86_64=18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7
+ARG HERDR_SHA256_AARCH64=4de7aa3e25678812e92960de64f7c2aaa1bca1f0f80a3c5e559837e231e1f5c0
 ARG CLAUDE_CODE_VERSION=2.1.296
 ARG CODEX_VERSION=0.162.1
 ARG OPENCODE_VERSION=1.19.0
@@ -53,7 +56,7 @@ ARG REPOSITORY_URL=https://github.com/kjw3/devlet
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates bash procps \
     ripgrep fd-find jq python3 openssh-client openssh-server less make \
-    nano vim-tiny \
+    nano vim-tiny tmux \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/fdfind /usr/local/bin/fd
 
@@ -73,6 +76,25 @@ RUN set -eux; \
       "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${TTYD_ARCH}" \
       -o /usr/local/bin/ttyd && \
     chmod +x /usr/local/bin/ttyd
+
+# Install herdr — terminal workspace manager that tracks coding-agent state across
+# panes/sessions (official release binary from herdrdev/herdr, checksum-verified).
+RUN set -eux; \
+    ARCH="$(uname -m)"; \
+    case "$ARCH" in \
+      x86_64)  HERDR_ARCH="x86_64";  HERDR_SHA256="${HERDR_SHA256_X86_64}"  ;; \
+      aarch64) HERDR_ARCH="aarch64"; HERDR_SHA256="${HERDR_SHA256_AARCH64}" ;; \
+      *) echo "Unsupported arch: $ARCH" && exit 1 ;; \
+    esac; \
+    curl -fsSL \
+      --retry 10 \
+      --retry-delay 2 \
+      --retry-max-time 120 \
+      --retry-all-errors \
+      "https://github.com/herdrdev/herdr/releases/download/${HERDR_VERSION}/herdr-linux-${HERDR_ARCH}" \
+      -o /usr/local/bin/herdr && \
+    echo "${HERDR_SHA256}  /usr/local/bin/herdr" | sha256sum -c - && \
+    chmod +x /usr/local/bin/herdr
 
 # Install all base coding agents
 RUN npm install -g pnpm@${PNPM_VERSION} \
