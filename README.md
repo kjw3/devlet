@@ -40,10 +40,33 @@ If you are evaluating this project, assume the safe deployment target is a **tru
 
 Devlet provides:
 
-- a web UI for managing agents
-- a server control plane for launching and tracking agent runtimes
-- multiple agent images for different tools and workflows
+- a web UI and CLI for hiring, supervising and firing agents
+- a server control plane that schedules agents onto your infrastructure and tracks them
+- agent images for coding agents (Claude Code, Codex, OpenCode, Pi, Gemini) and gateway agents
+  (OpenClaw, Hermes, Moltis), each with a web terminal and optional SSH
+- placement across **local Docker, Portainer, Komodo and Proxmox**, with GPU-aware scheduling
+- several ways to reach a running agent: the Devlet proxy, direct host/port SSH, and your
+  **Tailscale tailnet** (see below)
 - Docker-based deployment and image publishing support
+
+### Platforms
+
+| Platform | Notes |
+| --- | --- |
+| Docker | Local Docker socket. |
+| Portainer | Endpoints discovered from the Portainer API; GPU info comes from endpoint snapshots. |
+| Komodo | Servers discovered from Komodo. Devlet detects each server's LAN address and NVIDIA GPUs by itself, even when Komodo's agent runs in a container (see [Komodo notes](docs/platforms.md#komodo)). |
+| Proxmox | Placement/discovery only; provisioning is not implemented yet. |
+
+### Reaching an agent
+
+Each agent's detail page lists every way in. Use whichever fits where you are:
+
+- **Devlet proxy** — a token-protected link served by the Devlet server (web terminal, OpenClaw/Moltis UI).
+- **Direct host/port** — `ssh agent@<host> -p <port>` on the platform host's LAN address.
+- **Tailnet** — `ssh agent@devlet-<id>` and an HTTPS terminal URL from any device on your tailnet,
+  while the agent is running. The Devlet server can also route its proxy over the tailnet when an
+  agent's host address is unreachable. See [docs/tailscale.md](docs/tailscale.md).
 
 ## Quick Start
 
@@ -79,6 +102,12 @@ By default the services bind to loopback only:
 
 Open the web UI and enter the `DEVLET_AUTH_TOKEN` value from your `.env`.
 
+### 4. (Optional) Connect platforms and Tailscale
+
+Configure the platforms you use (`PORTAINER_*`, `KOMODO_*`, `PROXMOX_*` in `.env.example`) and, to
+put agents on your tailnet, follow [docs/tailscale.md](docs/tailscale.md). Platform and Tailscale
+connection status is shown in the UI (sidebar and **Settings**).
+
 ## Container Images
 
 This repo includes Dockerfiles and GitHub Actions for publishing images to `ghcr.io`.
@@ -90,6 +119,14 @@ Published images are intended to support reproducible private deployments, not t
 - Do not deploy this on a public IP without an additional security review.
 - Do not treat the current authentication layer as sufficient for hostile-network exposure.
 - Do not store real production secrets in ad hoc agent configuration unless you understand the trust model.
+- Agent web terminals have no password of their own — they rely on the Devlet proxy token, loopback
+  binding, and (on the tailnet) your Tailscale ACLs. Keep `tag:devlet-agent` locked down; do not let
+  agents reach `tag:devlet-server`.
+- The Tailscale auth key handed to an agent is single-use and short-lived but visible in
+  `docker inspect` until it expires.
+- The Devlet server and Komodo/Portainer integrations run helper containers on your hosts
+  (`busybox:1.37` to read a host's LAN address, `debian:12-slim` to query NVIDIA GPUs); both are pulled
+  once per host that needs them.
 - Review image pins in [docs/dependency-pins.md](docs/dependency-pins.md) before publishing your own builds.
 
 ## Development
@@ -99,6 +136,16 @@ pnpm install
 pnpm typecheck
 pnpm build
 ```
+
+To run the stack from local source instead of the published `ghcr.io` images:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
+```
+
+Agent images are only rebuilt by CI (`.github/workflows/publish-ghcr.yml`); to test agent-image
+changes locally, build `packages/agents/Dockerfile.base` and point `AGENT_IMAGE_CLAUDE_CODE` (etc.)
+at your local tag.
 
 ## License
 
