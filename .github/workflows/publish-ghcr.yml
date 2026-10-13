@@ -214,10 +214,8 @@ jobs:
             dockerfile: packages/agents/Dockerfile.openclaw
             image: devlet-agent-openclaw
             filter: openclaw
-          - name: nanoclaw
-            dockerfile: packages/agents/Dockerfile.nanoclaw
-            image: devlet-agent-nanoclaw
-            filter: nanoclaw
+          # nanoclaw is disabled (see DISABLED_AGENT_TYPES) — its upstream install flow changed
+          # and the image no longer starts. Re-add this entry when it is fixed.
           - name: hermes
             dockerfile: packages/agents/Dockerfile.hermes
             image: devlet-agent-hermes

@@ -9,6 +9,12 @@ export async function sshCommand(agentId: string) {
     process.exit(1);
   }
 
+  const tailnet = agent.access?.tailscale;
+  if (tailnet?.ssh) {
+    console.log(`ssh agent@${tailnet.hostname}`);
+    return;
+  }
+
   const ssh = agent.access?.ssh;
   if (!ssh) {
     console.error(`error: agent "${agent.config.name}" does not currently expose SSH`);

@@ -2,6 +2,7 @@ import * as p from "@clack/prompts";
 import { trpc } from "../client.js";
 import {
   AGENT_TYPES,
+  ENABLED_AGENT_TYPES,
   AGENT_TYPE_LABELS,
   DEFAULT_RESOURCE_LIMITS,
 } from "@devlet/shared";
@@ -11,7 +12,7 @@ export async function hireCommand() {
 
   const agentType = await p.select({
     message: "Agent type",
-    options: AGENT_TYPES.map((t) => ({
+    options: ENABLED_AGENT_TYPES.map((t) => ({
       value: t,
       label: AGENT_TYPE_LABELS[t],
     })),

@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { AgentType, PlatformTarget, ProxmoxStatus } from "@devlet/shared";
 import {
-  AGENT_TYPES,
+  ENABLED_AGENT_TYPES,
   CODING_AGENT_TYPES,
   AGENT_TYPE_LABELS,
   AGENT_TYPE_DESCRIPTIONS,
@@ -143,7 +143,6 @@ const AGENT_TYPE_SUBTITLES: Record<string, string> = {
   nemoclaw:      "NVIDIA",
 };
 
-const COMING_SOON_AGENT_TYPES = new Set(["nanoclaw", "nemoclaw"]);
 
 // ─── Proxmox disconnected sentinel (used to exclude Proxmox for single-task) ──
 
@@ -179,6 +178,8 @@ interface FormState {
   gpuRequired: boolean;
   gpuMemoryMb: number;
   persistent: boolean;
+  /** Join the tailnet while running (opt-out). Only offered when Tailscale is configured. */
+  tailnet: boolean;
   platformOverride?: PlatformTarget;
 }
 
@@ -229,7 +230,9 @@ export function HireAgent() {
     gpuRequired: false,
     gpuMemoryMb: 8192,
     persistent: false,
+    tailnet: true,
   });
+  const tailscaleStatus = trpc.platforms.tailscale.status.useQuery(undefined, { staleTime: 30_000 });
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -348,7 +351,7 @@ export function HireAgent() {
           onComplete: "terminate",
         },
         resources: { cpus: defaults.cpus, memoryMb: defaults.memoryMb },
-        env: {},
+        env: form.tailnet ? {} : { DEVLET_TAILSCALE: "false" },
         persistent: false,
         ...(form.platformOverride ? { platformOverride: form.platformOverride } : {}),
       });
@@ -364,7 +367,7 @@ export function HireAgent() {
         },
         resources: { cpus: form.cpus, memoryMb: form.memoryMb },
         ...(form.gpuRequired ? { gpu: { required: true, memoryMb: form.gpuMemoryMb } } : {}),
-        env: {},
+        env: form.tailnet ? {} : { DEVLET_TAILSCALE: "false" },
         persistent: form.persistent,
         ...(form.platformOverride ? { platformOverride: form.platformOverride } : {}),
       });
@@ -372,7 +375,7 @@ export function HireAgent() {
   }
 
   // Agent type grid filtered by mode
-  const visibleTypes = form.mode === "single-task" ? CODING_AGENT_TYPES : AGENT_TYPES;
+  const visibleTypes = form.mode === "single-task" ? CODING_AGENT_TYPES : ENABLED_AGENT_TYPES;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -510,24 +513,20 @@ export function HireAgent() {
               <div className="grid grid-cols-5 gap-2">
                 {visibleTypes.map((type) => {
                   const selected = form.type === type;
-                  const comingSoon = COMING_SOON_AGENT_TYPES.has(type);
                   return (
                     <button
                       key={type}
-                      onClick={() => !comingSoon && selectType(type)}
-                      title={comingSoon ? "coming soon" : AGENT_TYPE_DESCRIPTIONS[type]}
-                      disabled={comingSoon}
+                      onClick={() => selectType(type)}
+                      title={AGENT_TYPE_DESCRIPTIONS[type]}
                       className={`flex flex-col items-center gap-2 p-3 rounded-lg border transition-all ${
-                        comingSoon
-                          ? "border-surface-border bg-surface-raised opacity-40 cursor-not-allowed"
-                          : selected
+                        selected
                           ? "border-accent-cyan/60 bg-accent-cyan/8 shadow-[0_0_12px_rgba(6,182,212,0.15)]"
                           : "border-surface-border bg-surface-raised hover:border-gray-600 hover:bg-surface-overlay"
                       }`}
                     >
                       <div className="relative">
                         {AGENT_ICONS[type]}
-                        {selected && !comingSoon && (
+                        {selected && (
                           <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-accent-cyan rounded-full flex items-center justify-center">
                             <svg viewBox="0 0 10 10" className="w-2 h-2" fill="none">
                               <path d="M2 5L4.5 7.5L8 3" stroke="black" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -536,11 +535,11 @@ export function HireAgent() {
                         )}
                       </div>
                       <div className="text-center">
-                        <div className={`text-[11px] font-semibold leading-tight ${selected && !comingSoon ? "text-accent-cyan" : "text-gray-200"}`}>
+                        <div className={`text-[11px] font-semibold leading-tight ${selected ? "text-accent-cyan" : "text-gray-200"}`}>
                           {AGENT_TYPE_LABELS[type]}
                         </div>
                         <div className="text-[10px] mt-0.5 leading-tight text-gray-600">
-                          {comingSoon ? "coming soon" : AGENT_TYPE_SUBTITLES[type]}
+                          {AGENT_TYPE_SUBTITLES[type]}
                         </div>
                       </div>
                     </button>
@@ -585,6 +584,24 @@ export function HireAgent() {
                   <span className="text-gray-300">terminates on complete</span>
                 </div>
               </div>
+
+              {tailscaleStatus.data?.connected && (
+                <div className="mb-4 flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="tailnet"
+                    checked={form.tailnet}
+                    onChange={(e) => update("tailnet", e.target.checked)}
+                    className="w-3.5 h-3.5 accent-accent-cyan"
+                  />
+                  <label htmlFor="tailnet" className="text-[12px] text-gray-300 cursor-pointer">
+                    Expose on tailnet
+                  </label>
+                  <span className="text-[11px] text-gray-600">
+                    — agent joins your Tailscale network (SSH + web terminal) while it is running
+                  </span>
+                </div>
+              )}
 
               <div className="mb-4">
                 <div className="label mb-2">placement</div>

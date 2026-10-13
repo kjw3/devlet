@@ -160,6 +160,7 @@ function KeyRow({ sshKey }: { sshKey: SshPublicKey }) {
 export function Settings() {
   const [showAddForm, setShowAddForm] = useState(false);
   const { data: keys, isLoading } = trpc.settings.ssh.listKeys.useQuery();
+  const tailscale = trpc.platforms.tailscale.status.useQuery();
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -171,6 +172,34 @@ export function Settings() {
           <p className="text-xs text-gray-500 mt-1">
             Manage SSH keys and other global configuration for your devlet instance.
           </p>
+        </div>
+
+        {/* Tailscale section */}
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-200">Tailscale</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Running agents join your tailnet as ephemeral nodes and leave when stopped.
+            </p>
+          </div>
+          <div className="card p-4 text-[12px]">
+            {tailscale.isLoading ? (
+              <div className="text-[11px] text-gray-600 animate-pulse py-2">loading…</div>
+            ) : !tailscale.data?.configured ? (
+              <div className="text-gray-600 italic">
+                not configured — set <code className="font-mono text-gray-500">TAILSCALE_OAUTH_CLIENT_ID</code> and{" "}
+                <code className="font-mono text-gray-500">TAILSCALE_OAUTH_CLIENT_SECRET</code> in your <code className="font-mono text-gray-500">.env</code>
+              </div>
+            ) : tailscale.data.connected ? (
+              <div className="text-gray-300">
+                connected — {tailscale.data.agentNodes ?? 0} agent node{tailscale.data.agentNodes === 1 ? "" : "s"} online
+              </div>
+            ) : (
+              <div className="text-red-400 break-words">
+                credentials set but the Tailscale API failed: {tailscale.data.error}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* SSH Keys section */}

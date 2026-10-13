@@ -69,13 +69,16 @@ function ConnectionsPanel({ agentId, access }: {
   agentId: string;
   access: NonNullable<AgentState["access"]>;
 }) {
-  const hasAny = access.terminal || access.ssh || access.openclaw || access.moltis;
+  const hasAny = access.tailscale || access.terminal || access.ssh || access.openclaw || access.moltis;
   if (!hasAny) return null;
 
   return (
     <div className="card p-4">
       <div className="label mb-3">connections</div>
       <div className="space-y-4">
+        {access.tailscale && (
+          <TailscaleSection access={access.tailscale} />
+        )}
         {access.terminal && (
           <TerminalSection access={access.terminal} />
         )}
@@ -89,6 +92,61 @@ function ConnectionsPanel({ agentId, access }: {
           <MoltisSection agentId={agentId} access={access.moltis} />
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Tailscale section ────────────────────────────────────────────────────────
+
+function TailscaleSection({ access }: { access: NonNullable<NonNullable<AgentState["access"]>["tailscale"]> }) {
+  const command = `ssh agent@${access.hostname}`;
+  const [copied, setCopied] = useState(false);
+
+  const copyCommand = useCallback(() => {
+    void navigator.clipboard.writeText(command).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [command]);
+
+  const links = [
+    ["terminal", access.urls.terminal],
+    ["openclaw", access.urls.openclaw],
+    ["moltis", access.urls.moltis],
+  ] as const;
+
+  return (
+    <div>
+      <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1.5">tailnet</div>
+      <ConnRow label="host">
+        <span className="text-[12px] font-mono text-gray-300 truncate">{access.fqdn}</span>
+        {access.ip && <span className="text-[12px] font-mono text-gray-500">{access.ip}</span>}
+      </ConnRow>
+      {access.ssh && (
+        <ConnRow label="ssh">
+          <span className="text-[12px] font-mono text-gray-300 truncate flex-1">{command}</span>
+          <button
+            onClick={copyCommand}
+            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
+          >
+            {copied ? "copied ✓" : "copy"}
+          </button>
+        </ConnRow>
+      )}
+      {links.map(([label, url]) =>
+        url ? (
+          <ConnRow key={label} label={label}>
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[12px] font-mono text-accent-cyan hover:underline truncate"
+            >
+              {url}
+            </a>
+          </ConnRow>
+        ) : null
+      )}
     </div>
   );
 }

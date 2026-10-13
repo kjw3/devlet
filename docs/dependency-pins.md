@@ -18,6 +18,7 @@ Pinned as of 2026-10-13:
 | `openclaw` npm package | `2026.4.11` | npm registry |
 | `ttyd` | `1.7.7` | upstream Git tags |
 | `herdr` (`herdrdev/herdr`) | `v0.9.3` (sha256-verified in `Dockerfile.base`) | GitHub releases; pick a release at least two weeks old |
+| `tailscale` / `tailscaled` | `1.102.4` (sha256-verified in `Dockerfile.base`) | pkgs.tailscale.com stable tarballs; pick a release at least two weeks old |
 | `tmux` | Debian package | apt |
 | `ghcr.io/astral-sh/uv` | `0.13.0` | upstream Git tags |
 | `NousResearch/hermes-agent` | `v2026.9.24` | upstream Git tags |
@@ -37,7 +38,13 @@ Held back (newer upstream releases need migration work, not just a pin bump):
   `agents.list` -> `agents.entries`); the `openclaw.json` writer in `entrypoint.openclaw.sh`
   must be updated first.
 - `moltis` 20260913.x needs `libzvec_c_api.so` at runtime, which the current image does not ship.
-- `qwibitai/nanoclaw` v2026.10.x enforces a sanctioned install path ("upgrade tripwire"); the
+- `qwibitai/nanoclaw` (agent type currently **disabled**, see `DISABLED_AGENT_TYPES` in
+  `packages/shared/src/constants.ts`) — v2026.10.x enforces a sanctioned install path ("upgrade tripwire"); the
   git-clone install in `Dockerfile.nanoclaw` no longer works.
 
 Always start each gateway agent (not just `--version`) before publishing a bump.
+
+Disabled agent types: `nanoclaw` (broken upstream install flow) and `nemoclaw` (not implemented).
+They stay in the type system so saved agents still load, but cannot be hired and the NanoClaw
+image is no longer published by CI. Remove a type from `DISABLED_AGENT_TYPES` (and re-add its CI
+matrix entry) to bring it back.

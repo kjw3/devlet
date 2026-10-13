@@ -30,6 +30,7 @@ import type {
   PortainerStack,
   ProxmoxStatus,
   KomodoStatus,
+  TailscaleStatus,
   AgentTemplate,
   ProviderInfo,
   AgentTypeConfigMap,
@@ -119,6 +120,10 @@ export const appRouter = router({
       setExcluded: publicProcedure
         .input(SetKomodoExclusionInputSchema)
         .mutation(unimplemented as () => PlatformExclusions),
+    }),
+
+    tailscale: router({
+      status: publicProcedure.query(unimplemented as () => TailscaleStatus),
     }),
   }),
 

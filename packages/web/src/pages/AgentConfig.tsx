@@ -13,7 +13,6 @@ const CONFIGURABLE_AGENTS: { type: AgentType; providers: ProviderName[] }[] = [
   { type: "openclaw",    providers: ["litellm", "openrouter", "anthropic", "openai", "gemini", "nvidia"] },
   { type: "hermes",      providers: ["litellm", "openrouter", "anthropic", "openai", "gemini", "nvidia"] },
   { type: "moltis",      providers: ["litellm", "openrouter", "anthropic", "openai", "gemini", "nvidia"] },
-  { type: "nemoclaw",    providers: ["nvidia", "litellm", "openai"] },
 ];
 
 const PROVIDER_LABELS: Record<ProviderName, string> = {

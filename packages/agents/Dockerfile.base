@@ -19,6 +19,7 @@
 #   DEVLET_AGENT_MISSION  - task to run headlessly (omit for interactive)
 #   LITELLM_BASE_URL / LITELLM_API_KEY
 #   DEVLET_AGENT_ID / DEVLET_API_URL / DEVLET_API_TOKEN
+#   TS_AUTHKEY / TS_HOSTNAME / TS_TAGS / TS_SSH - join the tailnet (see devlet-tailscale)
 # ──────────────────────────────────────────────────────────────────────────────
 
 ARG NODE_IMAGE=node:24.21.0-slim
@@ -29,6 +30,9 @@ ARG TTYD_VERSION=1.7.7
 ARG HERDR_VERSION=v0.9.3
 ARG HERDR_SHA256_X86_64=18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7
 ARG HERDR_SHA256_AARCH64=4de7aa3e25678812e92960de64f7c2aaa1bca1f0f80a3c5e559837e231e1f5c0
+ARG TAILSCALE_VERSION=1.102.4
+ARG TAILSCALE_SHA256_AMD64=50748df1045e60b5b695f19f4c56b0da36c019948b440fb456b6584a50f0d8b9
+ARG TAILSCALE_SHA256_ARM64=9dd1e6a592a014bbaea0103167ffe299adeda4ba14e078ce9c2895364f6c4c3f
 ARG CLAUDE_CODE_VERSION=2.1.296
 ARG CODEX_VERSION=0.162.1
 ARG OPENCODE_VERSION=1.19.0
@@ -96,6 +100,27 @@ RUN set -eux; \
     echo "${HERDR_SHA256}  /usr/local/bin/herdr" | sha256sum -c - && \
     chmod +x /usr/local/bin/herdr
 
+# Install Tailscale static binaries — lets running agents join the tailnet in userspace
+# mode (checksum-verified; see devlet-tailscale.sh).
+RUN set -eux; \
+    ARCH="$(uname -m)"; \
+    case "$ARCH" in \
+      x86_64)  TS_ARCH="amd64"; TS_SHA256="${TAILSCALE_SHA256_AMD64}" ;; \
+      aarch64) TS_ARCH="arm64"; TS_SHA256="${TAILSCALE_SHA256_ARM64}" ;; \
+      *) echo "Unsupported arch: $ARCH" && exit 1 ;; \
+    esac; \
+    curl -fsSL \
+      --retry 10 \
+      --retry-delay 2 \
+      --retry-max-time 120 \
+      --retry-all-errors \
+      "https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_${TS_ARCH}.tgz" \
+      -o /tmp/tailscale.tgz && \
+    echo "${TS_SHA256}  /tmp/tailscale.tgz" | sha256sum -c - && \
+    tar -xzf /tmp/tailscale.tgz -C /tmp && \
+    install -m 0755 "/tmp/tailscale_${TAILSCALE_VERSION}_${TS_ARCH}/tailscale" "/tmp/tailscale_${TAILSCALE_VERSION}_${TS_ARCH}/tailscaled" /usr/local/bin/ && \
+    rm -rf /tmp/tailscale.tgz "/tmp/tailscale_${TAILSCALE_VERSION}_${TS_ARCH}"
+
 # Install all base coding agents
 RUN npm install -g pnpm@${PNPM_VERSION} \
     @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
@@ -113,10 +138,11 @@ COPY packages/agents/entrypoint.base.sh /entrypoint.sh
 COPY packages/agents/devlet-terminal.sh /usr/local/bin/devlet-terminal
 COPY packages/agents/devlet-ssh.sh /usr/local/bin/devlet-ssh
 COPY packages/agents/devlet-coding-init.sh /usr/local/bin/devlet-coding-init
+COPY packages/agents/devlet-tailscale.sh /usr/local/bin/devlet-tailscale
 COPY packages/agents/devlet-services.sh /usr/local/bin/devlet-services
 COPY packages/agents/devlet-service-runner.py /usr/local/bin/devlet-service-runner
 COPY packages/agents/devlet-systemctl.sh /usr/local/bin/systemctl
-RUN chmod +x /entrypoint.sh /usr/local/bin/devlet-terminal /usr/local/bin/devlet-ssh /usr/local/bin/devlet-coding-init /usr/local/bin/devlet-services /usr/local/bin/devlet-service-runner /usr/local/bin/systemctl
+RUN chmod +x /entrypoint.sh /usr/local/bin/devlet-terminal /usr/local/bin/devlet-ssh /usr/local/bin/devlet-tailscale /usr/local/bin/devlet-coding-init /usr/local/bin/devlet-services /usr/local/bin/devlet-service-runner /usr/local/bin/systemctl
 
 # Create non-root agent user — coding agents refuse --dangerously-skip-permissions as root
 RUN useradd --create-home --user-group --shell /bin/bash agent && \

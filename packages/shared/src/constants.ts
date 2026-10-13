@@ -13,6 +13,18 @@ export const AGENT_TYPES: AgentType[] = [
   "nemoclaw",
 ];
 
+/**
+ * Agent types that exist in the type system (saved agents keep loading, images and
+ * scheduler rules stay in place) but cannot be hired right now. Remove a type from
+ * this list to offer it again.
+ */
+export const DISABLED_AGENT_TYPES: AgentType[] = ["nanoclaw", "nemoclaw"];
+
+/** Agent types that can currently be hired. */
+export const ENABLED_AGENT_TYPES: AgentType[] = AGENT_TYPES.filter(
+  (type) => !DISABLED_AGENT_TYPES.includes(type)
+);
+
 /** Coding agents suitable for single-task / ephemeral workloads (Docker or Portainer only). */
 export const CODING_AGENT_TYPES: AgentType[] = [
   "claude-code",

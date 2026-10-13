@@ -1,4 +1,5 @@
 import type { AgentConfig } from "@devlet/shared";
+import { withTailscaleEnv } from "../tailscale/client.js";
 import {
   createAgentContainer,
   getContainerLogs,
@@ -72,7 +73,9 @@ function parsePlatformRef(ref: string): ParsedRef {
  * Provision an agent on whichever platform `config.platform` specifies.
  * Returns the full platformRef string for the created resource.
  */
-export async function provisionAgent(config: AgentConfig): Promise<string> {
+export async function provisionAgent(baseConfig: AgentConfig): Promise<string> {
+  // Per-launch tailnet env (single-use auth key) — not persisted in saved agent state.
+  const config = await withTailscaleEnv(baseConfig);
   switch (config.platform.type) {
     case "docker": {
       const id = await createAgentContainer(config);

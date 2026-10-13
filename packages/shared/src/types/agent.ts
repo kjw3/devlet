@@ -86,6 +86,18 @@ export interface AgentState {
       username: string;
       hostKeyFingerprint?: string;
     };
+    tailscale?: {
+      hostname: string;
+      /** MagicDNS name, e.g. devlet-agent-ab12.tailnet.ts.net */
+      fqdn: string;
+      ip?: string;
+      ssh: boolean;
+      urls: {
+        terminal?: string;
+        openclaw?: string;
+        moltis?: string;
+      };
+    };
     openclaw?: {
       url: string;
       token?: string;

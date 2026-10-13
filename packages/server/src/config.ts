@@ -36,6 +36,16 @@ export const config = {
     insecure: process.env["PROXMOX_INSECURE"] === "true",
     excludedNodes: parseCsvSet(process.env["PROXMOX_EXCLUDED_NODES"] ?? ""),
   },
+  tailscale: {
+    clientId: process.env["TAILSCALE_OAUTH_CLIENT_ID"] ?? "",
+    clientSecret: process.env["TAILSCALE_OAUTH_CLIENT_SECRET"] ?? "",
+    // "-" means the default tailnet of the OAuth client.
+    tailnet: process.env["TAILSCALE_TAILNET"] || "-",
+    tag: process.env["TAILSCALE_AGENT_TAG"] || "tag:devlet-agent",
+    // Opt-out: agents join the tailnet unless hired with DEVLET_TAILSCALE=false.
+    // Set TAILSCALE_DEFAULT_ENABLED=false to flip this to opt-in.
+    defaultEnabled: process.env["TAILSCALE_DEFAULT_ENABLED"] !== "false",
+  },
   komodo: {
     url: process.env["KOMODO_URL"] ?? "",
     apiKey: process.env["KOMODO_API_KEY"] ?? "",

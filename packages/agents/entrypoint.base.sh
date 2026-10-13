@@ -6,6 +6,7 @@ set -e
 # ─── Background daemons + coding tool init ───────────────────────────────────
 . /usr/local/bin/devlet-terminal
 . /usr/local/bin/devlet-ssh
+. /usr/local/bin/devlet-tailscale
 . /usr/local/bin/devlet-coding-init
 . /usr/local/bin/devlet-services
 

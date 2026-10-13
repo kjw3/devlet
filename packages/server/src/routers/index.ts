@@ -11,6 +11,8 @@ import {
   SetProxmoxExclusionInputSchema,
   SetKomodoExclusionInputSchema,
   AGENT_RESOURCE_MINS,
+  AGENT_TYPE_LABELS,
+  DISABLED_AGENT_TYPES,
   type AgentConfig,
   type AgentState,
   type AppRouter as SharedAppRouter,
@@ -40,6 +42,7 @@ import {
 import { probePortainer } from "../platforms/portainer.js";
 import { probeProxmox } from "../platforms/proxmox.js";
 import { probeKomodo } from "../platforms/komodo.js";
+import { findAgentDevice, probeTailscale, removeAgentDevices, isTailscaleEnabledFor } from "../tailscale/client.js";
 import { provisionAgent, stopAgent, removeAgent, getAgentLogs } from "../platforms/dispatch.js";
 import {
   listAgentStates,
@@ -202,6 +205,28 @@ async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
         password: getMoltisInitialPassword(state.config),
       },
     };
+  }
+
+  if ((state.status === "running" || state.status === "idle") && isTailscaleEnabledFor(state.config)) {
+    const device = await findAgentDevice(state.config.id).catch(() => null);
+    if (device) {
+      const base = `https://${device.name.replace(/\.$/, "")}`;
+      const ip = device.addresses.find((addr) => !addr.includes(":"));
+      access = {
+        ...access,
+        tailscale: {
+          hostname: device.hostname,
+          fqdn: device.name.replace(/\.$/, ""),
+          ...(ip ? { ip } : {}),
+          ssh: state.config.env["TS_SSH"] !== "false",
+          urls: {
+            ...(terminalPort ? { terminal: `${base}/` } : {}),
+            ...(state.config.type === "openclaw" ? { openclaw: `${base}:8443/` } : {}),
+            ...(state.config.type === "moltis" ? { moltis: `${base}:8443/` } : {}),
+          },
+        },
+      };
+    }
   }
 
   return {
@@ -528,6 +553,12 @@ export const appRouter = t.router({
     hire: authProcedure
       .input(HireAgentInputSchema)
       .mutation(async ({ input }) => {
+        if (DISABLED_AGENT_TYPES.includes(input.type)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `${AGENT_TYPE_LABELS[input.type]} is not available to hire right now`,
+          });
+        }
         const mins = AGENT_RESOURCE_MINS[input.type];
         if (input.resources.cpus < mins.cpus) {
           throw new TRPCError({
@@ -662,6 +693,7 @@ export const appRouter = t.router({
       const state = await loadAgentState(input);
       await stopAgent(state.platformRef);
       await removeAgent(state.platformRef);
+      await removeAgentDevices(state.config.id);
       state.status = "terminated";
       await saveAgentState(state);
     }),
@@ -674,6 +706,7 @@ export const appRouter = t.router({
         const state = await loadAgentState(input);
         await stopAgent(state.platformRef);
         await removeAgent(state.platformRef);
+        await removeAgentDevices(state.config.id);
       } catch {
         // Non-fatal: proceed with state deletion regardless
       }
@@ -766,6 +799,10 @@ export const appRouter = t.router({
       setExcluded: authProcedure
         .input(SetProxmoxExclusionInputSchema)
         .mutation(({ input }) => setProxmoxExcluded(input.target, input.excluded)),
+    }),
+
+    tailscale: t.router({
+      status: authProcedure.query(() => probeTailscale()),
     }),
 
     komodo: t.router({

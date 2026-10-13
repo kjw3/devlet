@@ -106,3 +106,13 @@ export interface KomodoStatus {
   servers: KomodoServer[];
   error?: string;
 }
+
+export interface TailscaleStatus {
+  /** OAuth client id + secret are present in the server env. */
+  configured: boolean;
+  /** An OAuth token could be obtained and the tailnet API answered. */
+  connected: boolean;
+  /** Devlet-tagged nodes currently on the tailnet. */
+  agentNodes?: number;
+  error?: string;
+}
