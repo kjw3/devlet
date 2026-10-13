@@ -18,8 +18,8 @@ function parseMultilineEntries(value: string): string[] {
 }
 
 export const config = {
-  publicBaseUrl: (process.env["DEVLET_PUBLIC_BASE_URL"] ?? "http://localhost:3000").replace(/\/+$/, ""),
-  dockerProxyHost: process.env["DEVLET_DOCKER_PROXY_HOST"] ?? "host.docker.internal",
+  publicBaseUrl: (process.env["DEVLET_PUBLIC_BASE_URL"] || "http://localhost:3000").replace(/\/+$/, ""),
+  dockerProxyHost: process.env["DEVLET_DOCKER_PROXY_HOST"] || "host.docker.internal",
   agentSsh: {
     authorizedKeys: parseMultilineEntries(process.env["DEVLET_AGENT_SSH_AUTHORIZED_KEYS"] ?? ""),
   },
@@ -41,5 +41,13 @@ export const config = {
     apiKey: process.env["KOMODO_API_KEY"] ?? "",
     apiSecret: process.env["KOMODO_API_SECRET"] ?? "",
     excludedServers: parseCsvSet(process.env["KOMODO_EXCLUDED_SERVERS"] ?? ""),
+    // "name=host,id=host" — address Devlet should use to reach each Komodo server's
+    // published agent ports. Komodo often has no reachable address for servers that
+    // connect to the core outbound (and public_ip is just their shared WAN IP).
+    serverHosts: Object.fromEntries(
+      parseCsvSet(process.env["KOMODO_SERVER_HOSTS"] ?? "")
+        .map((entry) => entry.split("=").map((part) => part.trim()))
+        .filter((pair): pair is [string, string] => pair.length === 2 && Boolean(pair[0]) && Boolean(pair[1]))
+    ) as Record<string, string>,
   },
 } as const;

@@ -2,6 +2,7 @@ import { Types } from "komodo_client";
 import type { KomodoServer, KomodoServerState, KomodoStatus } from "@devlet/shared";
 import { getKomodoClient, type Komodo } from "./komodo-client.js";
 import { loadEffectivePlatformExclusions } from "./exclusions.js";
+import { config as appConfig } from "../config.js";
 
 /**
  * Probe the Komodo core: reachability + version, managed servers, and per-server
@@ -108,11 +109,15 @@ export async function probeKomodo(): Promise<KomodoStatus> {
         const state = normalizeState(s.info?.state);
         const online = state === "ok";
         const gpu = online ? await getGpuForServer(komodo, s.name) : undefined;
+        // Preference: explicit KOMODO_SERVER_HOSTS mapping, then the address Komodo
+        // has for the server, then a dotted server name (likely an FQDN), and only
+        // last the public IP (a shared WAN address that is rarely the server itself).
+        const mapped = appConfig.komodo.serverHosts[s.name] ?? appConfig.komodo.serverHosts[s.id];
         const host =
-          (s.info?.external_address ?? s.info?.public_ip ?? s.info?.address ?? "").replace(
-            /^https?:\/\//,
-            ""
-          ) || undefined;
+          (
+            mapped ??
+            (s.info?.external_address || s.info?.address || (s.name.includes(".") ? s.name : "") || s.info?.public_ip || "")
+          ).replace(/^https?:\/\//, "") || undefined;
 
         return {
           id: s.id,

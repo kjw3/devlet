@@ -110,6 +110,11 @@ $(_dci_kv GEMINI_API_KEY "$LITELLM_API_KEY")
 $(_dci_kv GOOGLE_GENERATIVE_AI_API_KEY "$LITELLM_API_KEY")"
   [ -n "$_dci_gmodel" ] && _dci_env="$_dci_env
 $(_dci_kv GEMINI_MODEL "$_dci_gmodel")"
+  # Headless gemini rejects the env-derived "gateway" auth type ("Invalid auth method
+  # selected"), so pin the API-key type; it still honours GOOGLE_GEMINI_BASE_URL.
+  mkdir -p ~/.gemini
+  [ -f ~/.gemini/settings.json ] || \
+    printf '{"security":{"auth":{"selectedType":"gemini-api-key"}}}\n' > ~/.gemini/settings.json
   _dci_wrap gemini "$_dci_env"
   echo "[devlet] litellm: gemini model=${_dci_gmodel:-<gemini default>}"
 fi
@@ -148,13 +153,13 @@ if command -v codex &>/dev/null; then
   fi
   if [ -n "$_dci_api_key" ]; then
     echo "$_dci_api_key" | codex login --with-api-key 2>/dev/null || true
-    mkdir -p ~/.config/codex
-    if [ -n "$_dci_base_url" ]; then
-      printf '{"model":"%s","openai_base_url":"%s"}\n' \
-        "${_dci_model:-o4-mini}" "$_dci_base_url" > ~/.config/codex/config.json
-    else
-      printf '{"model":"%s"}\n' "${_dci_model:-o4-mini}" > ~/.config/codex/config.json
-    fi
+    # Codex reads ~/.codex/config.toml (not ~/.config/codex/*), so a bare `codex`
+    # typed in the web terminal picks up the gateway as well as scripted runs.
+    mkdir -p ~/.codex
+    {
+      printf 'model = "%s"\n' "${_dci_model:-o4-mini}"
+      [ -n "$_dci_base_url" ] && printf 'openai_base_url = "%s"\n' "$_dci_base_url"
+    } > ~/.codex/config.toml
   fi
   unset _dci_api_key _dci_base_url _dci_model
 fi
@@ -186,6 +191,14 @@ if command -v opencode &>/dev/null; then
 fi
 
 unset _dci_gmodel  # _dci_models + _dci_litellm_model stay for the entrypoint's exec phase
+
+# ─── Web terminal / interactive shells ───────────────────────────────────────
+# ttyd starts before this script and launches plain non-login `bash` sessions, so
+# they inherit neither the PATH wrappers above nor anything exported here. Have
+# interactive shells source the snapshot written below.
+if ! grep -qF '.devlet-env' ~/.bashrc 2>/dev/null; then
+  printf '\n[ -f ~/.devlet-env ] && . ~/.devlet-env\n' >> ~/.bashrc
+fi
 
 # ─── Refresh SSH session env snapshot ────────────────────────────────────────
 # Writes ~/.devlet-env so SSH login shells inherit all credentials and aliases.

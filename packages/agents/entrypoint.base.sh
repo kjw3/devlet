@@ -68,12 +68,11 @@ case "$AGENT_TYPE" in
         fi;;
     esac
     # Overwrite config with the exact requested model (devlet-coding-init wrote auto-detected defaults)
-    mkdir -p ~/.config/codex
-    if [ -n "${CODEX_BASE_URL:-}" ]; then
-      printf '{"model":"%s","openai_base_url":"%s"}\n' "${CODEX_MODEL:-o4-mini}" "$CODEX_BASE_URL" > ~/.config/codex/config.json
-    else
-      printf '{"model":"%s"}\n' "${CODEX_MODEL:-o4-mini}" > ~/.config/codex/config.json
-    fi
+    mkdir -p ~/.codex
+    {
+      printf 'model = "%s"\n' "${CODEX_MODEL:-o4-mini}"
+      [ -n "${CODEX_BASE_URL:-}" ] && printf 'openai_base_url = "%s"\n' "$CODEX_BASE_URL"
+    } > ~/.codex/config.toml
     ;;
   opencode)
     if [ -n "$PROVIDER" ]; then RESOLVED_PROVIDER="$PROVIDER"

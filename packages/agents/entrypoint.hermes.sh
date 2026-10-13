@@ -55,7 +55,7 @@ HERMES_API_KEY=""
 case "$PROVIDER" in
   litellm)
     HERMES_PROVIDER="custom"
-    HERMES_NAME="${MODEL:-best}"
+    HERMES_NAME="${MODEL:-$(_dci_litellm_model hermes)}"; HERMES_NAME="${HERMES_NAME:-best}"
     HERMES_BASE_URL="${LITELLM_BASE_URL:-}"
     HERMES_API_KEY="${LITELLM_API_KEY:-}"
     ;;
@@ -93,12 +93,7 @@ case "$PROVIDER" in
     ;;
   "")
     # No provider configured — pick best available from keys
-    if [ -n "${LITELLM_BASE_URL:-}" ]; then
-      HERMES_PROVIDER="custom"
-      HERMES_NAME="${MODEL:-best}"
-      HERMES_BASE_URL="${LITELLM_BASE_URL}"
-      HERMES_API_KEY="${LITELLM_API_KEY:-}"
-    elif [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+    if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
       HERMES_PROVIDER="anthropic"
       HERMES_NAME="${MODEL:-claude-sonnet-4-5-20251001}"
     elif [ -n "${OPENROUTER_API_KEY:-}" ]; then
@@ -117,6 +112,12 @@ case "$PROVIDER" in
       HERMES_NAME="${MODEL:-llama-3.3-70b-versatile}"
       HERMES_BASE_URL="https://api.groq.com/openai/v1"
       HERMES_API_KEY="${GROQ_API_KEY}"
+    elif [ -n "${LITELLM_BASE_URL:-}" ] && [ -n "${LITELLM_API_KEY:-}" ]; then
+      # Fallback: LiteLLM is the only configured provider
+      HERMES_PROVIDER="custom"
+      HERMES_NAME="${MODEL:-$(_dci_litellm_model hermes)}"; HERMES_NAME="${HERMES_NAME:-best}"
+      HERMES_BASE_URL="${LITELLM_BASE_URL}"
+      HERMES_API_KEY="${LITELLM_API_KEY}"
     fi
     ;;
 esac

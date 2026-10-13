@@ -17,6 +17,19 @@ export ASSISTANT_NAME="$AGENT_NAME"
 
 echo "[devlet] nanoclaw starting (assistant=$AGENT_NAME)..."
 
+# NanoClaw only speaks the Anthropic API. With no Anthropic key, use LiteLLM's
+# Anthropic-compatible endpoint (and pin every model alias to a served model).
+if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -n "${LITELLM_BASE_URL:-}" ] && [ -n "${LITELLM_API_KEY:-}" ]; then
+  export ANTHROPIC_BASE_URL="${LITELLM_BASE_URL%/}" ANTHROPIC_API_KEY="$LITELLM_API_KEY"
+  _nc_model=$(_dci_litellm_model claude-code)
+  if [ -n "$_nc_model" ]; then
+    export ANTHROPIC_MODEL="$_nc_model" ANTHROPIC_DEFAULT_OPUS_MODEL="$_nc_model" \
+           ANTHROPIC_DEFAULT_SONNET_MODEL="$_nc_model" ANTHROPIC_DEFAULT_HAIKU_MODEL="$_nc_model" \
+           ANTHROPIC_SMALL_FAST_MODEL="$_nc_model"
+  fi
+  echo "[devlet] nanoclaw via LiteLLM model=${_nc_model:-<default>}"
+fi
+
 cd /nanoclaw
 
 # ─── .env setup ───────────────────────────────────────────────────────────────
@@ -46,6 +59,7 @@ function upsert(key, value) {
 upsert('ASSISTANT_NAME',    process.env.AGENT_NAME          || process.env.ASSISTANT_NAME);
 upsert('ANTHROPIC_API_KEY', process.env.ANTHROPIC_API_KEY);
 upsert('ANTHROPIC_BASE_URL',process.env.ANTHROPIC_BASE_URL);
+for (const k of ['ANTHROPIC_MODEL','ANTHROPIC_DEFAULT_OPUS_MODEL','ANTHROPIC_DEFAULT_SONNET_MODEL','ANTHROPIC_DEFAULT_HAIKU_MODEL','ANTHROPIC_SMALL_FAST_MODEL']) upsert(k, process.env[k]);
 
 fs.writeFileSync(path, content);
 console.log('[devlet] .env written');

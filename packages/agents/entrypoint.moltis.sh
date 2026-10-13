@@ -13,6 +13,21 @@ AGENT_NAME="${DEVLET_AGENT_NAME:-Moltis}"
 PORT="${MOLTIS_PORT:-13131}"
 PROVIDER="${MOLTIS_PROVIDER:-anthropic}"
 API_KEY="${MOLTIS_API_KEY:-${ANTHROPIC_API_KEY:-}}"
+BASE_URL_LINE=""
+MODELS_LINE=""
+
+# LiteLLM when explicitly selected, or as the fallback when no Anthropic key exists.
+# Moltis takes any OpenAI-compatible endpoint as a "custom-<name>" provider.
+if [ -z "${MOLTIS_PROVIDER:-}" ] && [ -n "${LITELLM_BASE_URL:-}" ] && [ -n "${LITELLM_API_KEY:-}" ] && \
+   { [ "${DEVLET_AGENT_PROVIDER:-}" = "litellm" ] || \
+     { [ -z "${DEVLET_AGENT_PROVIDER:-}" ] && [ -z "${API_KEY}" ]; }; }; then
+  PROVIDER="custom-litellm"
+  API_KEY="$LITELLM_API_KEY"
+  BASE_URL_LINE="base_url = \"${LITELLM_BASE_URL%/}/v1\""
+  _mo_model="${DEVLET_AGENT_MODEL:-$(_dci_litellm_model moltis)}"
+  [ -n "$_mo_model" ] && MODELS_LINE="models = [\"${_mo_model}\"]"
+  echo "[devlet] moltis via LiteLLM model=${_mo_model:-<all>}"
+fi
 
 # MOLTIS_PASSWORD is required by the unattended-setup bypass: when all three of
 # MOLTIS_PASSWORD, MOLTIS_PROVIDER, MOLTIS_API_KEY are set before first launch,
@@ -51,7 +66,10 @@ disabled = true
 offered = ["${PROVIDER}"]
 
 [providers.${PROVIDER}]
+enabled = true
 api_key = "${API_KEY}"
+${BASE_URL_LINE}
+${MODELS_LINE}
 EOF
 
 # If a mission is provided, write it to HEARTBEAT.md in the moltis data dir.

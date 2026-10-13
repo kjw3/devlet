@@ -10,21 +10,22 @@ function normalizeArchitecture(value: string | undefined): "amd64" | "arm64" | "
   return "unknown";
 }
 
-// Agent images — configurable via env vars.
+// Agent images — configurable via env vars. Use `||` (not `??`): docker-compose passes
+// unset overrides as empty strings, which must fall back to the defaults.
 export const AGENT_IMAGE: Record<AgentType, string> = {
   // Base image handles claude-code, codex, opencode, pi, gemini via DEVLET_AGENT_TYPE dispatch
-  "claude-code": process.env["AGENT_IMAGE_CLAUDE_CODE"] ?? "ghcr.io/kjw3/devlet-agent-base:latest",
-  "codex":       process.env["AGENT_IMAGE_CODEX"]       ?? "ghcr.io/kjw3/devlet-agent-base:latest",
-  "opencode":    process.env["AGENT_IMAGE_OPENCODE"]    ?? "ghcr.io/kjw3/devlet-agent-base:latest",
-  "pi":          process.env["AGENT_IMAGE_PI"]          ?? "ghcr.io/kjw3/devlet-agent-base:latest",
-  "gemini":      process.env["AGENT_IMAGE_GEMINI"]      ?? "ghcr.io/kjw3/devlet-agent-base:latest",
+  "claude-code": process.env["AGENT_IMAGE_CLAUDE_CODE"] || "ghcr.io/kjw3/devlet-agent-base:latest",
+  "codex":       process.env["AGENT_IMAGE_CODEX"]       || "ghcr.io/kjw3/devlet-agent-base:latest",
+  "opencode":    process.env["AGENT_IMAGE_OPENCODE"]    || "ghcr.io/kjw3/devlet-agent-base:latest",
+  "pi":          process.env["AGENT_IMAGE_PI"]          || "ghcr.io/kjw3/devlet-agent-base:latest",
+  "gemini":      process.env["AGENT_IMAGE_GEMINI"]      || "ghcr.io/kjw3/devlet-agent-base:latest",
   // Specialised images
-  "openclaw":    process.env["AGENT_IMAGE_OPENCLAW"]    ?? "ghcr.io/kjw3/devlet-agent-openclaw:latest",
-  "nanoclaw":    process.env["AGENT_IMAGE_NANOCLAW"]    ?? "ghcr.io/kjw3/devlet-agent-nanoclaw:latest",
-  "hermes":      process.env["AGENT_IMAGE_HERMES"]      ?? "ghcr.io/kjw3/devlet-agent-hermes:latest",
-  "moltis":      process.env["AGENT_IMAGE_MOLTIS"]      ?? "ghcr.io/kjw3/devlet-agent-moltis:latest",
+  "openclaw":    process.env["AGENT_IMAGE_OPENCLAW"]    || "ghcr.io/kjw3/devlet-agent-openclaw:latest",
+  "nanoclaw":    process.env["AGENT_IMAGE_NANOCLAW"]    || "ghcr.io/kjw3/devlet-agent-nanoclaw:latest",
+  "hermes":      process.env["AGENT_IMAGE_HERMES"]      || "ghcr.io/kjw3/devlet-agent-hermes:latest",
+  "moltis":      process.env["AGENT_IMAGE_MOLTIS"]      || "ghcr.io/kjw3/devlet-agent-moltis:latest",
   // Proxmox-only — placeholder until Proxmox provisioning is implemented
-  "nemoclaw":    process.env["AGENT_IMAGE_NEMOCLAW"]    ?? "node:22.23.3-slim",
+  "nemoclaw":    process.env["AGENT_IMAGE_NEMOCLAW"]    || "node:22.23.3-slim",
 };
 
 /** Probe a TCP port on 0.0.0.0 to see if it is available on the host. */

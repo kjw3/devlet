@@ -11,8 +11,22 @@ set -e
 AGENT_NAME="${DEVLET_AGENT_NAME:-OpenClaw Agent}"
 AGENT_ROLE="${DEVLET_AGENT_ROLE:-AI assistant}"
 AGENT_MISSION="${DEVLET_AGENT_MISSION:-}"
-PROVIDER="${DEVLET_AGENT_PROVIDER:-anthropic}"
-MODEL="${DEVLET_AGENT_MODEL:-claude-sonnet-4-6}"
+# Provider: explicit pick wins; otherwise a native key, then LiteLLM as the fallback.
+PROVIDER="${DEVLET_AGENT_PROVIDER:-}"
+if [ -z "$PROVIDER" ]; then
+  if   [ -n "${ANTHROPIC_API_KEY:-}" ];  then PROVIDER="anthropic"
+  elif [ -n "${OPENAI_API_KEY:-}" ];     then PROVIDER="openai"
+  elif [ -n "${OPENROUTER_API_KEY:-}" ]; then PROVIDER="openrouter"
+  elif [ -n "${GEMINI_API_KEY:-}" ];     then PROVIDER="gemini"
+  elif [ -n "${LITELLM_BASE_URL:-}" ] && [ -n "${LITELLM_API_KEY:-}" ]; then PROVIDER="litellm"
+  elif [ -n "${NVIDIA_API_KEY:-}" ];     then PROVIDER="nvidia"
+  else PROVIDER="anthropic"; fi
+fi
+# Model: explicit pick wins; on LiteLLM choose from what the proxy serves.
+MODEL="${DEVLET_AGENT_MODEL:-}"
+if [ -z "$MODEL" ] && [ "$PROVIDER" = "litellm" ]; then MODEL=$(_dci_litellm_model openclaw); fi
+MODEL="${MODEL:-claude-sonnet-4-6}"
+export DEVLET_AGENT_PROVIDER="$PROVIDER" DEVLET_AGENT_MODEL="$MODEL"
 
 # Token — devlet server pre-generates and passes OPENCLAW_GATEWAY_TOKEN.
 # Auto-generate a UUID only if the container is started without one (e.g. manually).
@@ -74,7 +88,7 @@ function buildModelRegistry() {
       mode: 'merge',
       providers: {
         litellm: {
-          baseUrl: `${process.env.LITELLM_BASE_URL}/v1`,
+          baseUrl: `${process.env.LITELLM_BASE_URL.replace(/\/+$/, '')}/v1`,
           apiKey: process.env.LITELLM_API_KEY,
           api: 'openai-completions',
           models: [
