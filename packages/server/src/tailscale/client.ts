@@ -22,7 +22,12 @@ export interface TailnetDevice {
   connectedToControl: boolean;
 }
 
-let tokenCache: { value: string; expiresAt: number } | null = null;
+interface OAuthCreds {
+  clientId: string;
+  clientSecret: string;
+}
+
+const tokenCache = new Map<string, { value: string; expiresAt: number }>();
 let deviceCache: { ts: number; devices: TailnetDevice[] } | null = null;
 
 export function isTailscaleConfigured(): boolean {
@@ -60,24 +65,38 @@ async function api<T>(path: string, init: RequestInit = {}, token?: string): Pro
   return (text ? JSON.parse(text) : {}) as T;
 }
 
-async function getAccessToken(): Promise<string> {
-  if (tokenCache && tokenCache.expiresAt > Date.now() + 30_000) return tokenCache.value;
+const AGENT_CREDS = (): OAuthCreds => ({
+  clientId: config.tailscale.clientId,
+  clientSecret: config.tailscale.clientSecret,
+});
+
+export const SERVER_CREDS = (): OAuthCreds => ({
+  clientId: config.tailscale.serverClientId,
+  clientSecret: config.tailscale.serverClientSecret,
+});
+
+async function getAccessToken(creds: OAuthCreds = AGENT_CREDS()): Promise<string> {
+  const cached = tokenCache.get(creds.clientId);
+  if (cached && cached.expiresAt > Date.now() + 30_000) return cached.value;
   const body = await api<{ access_token: string; expires_in: number }>("/oauth/token", {
     method: "POST",
     body: new URLSearchParams({
-      client_id: config.tailscale.clientId,
-      client_secret: config.tailscale.clientSecret,
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
       grant_type: "client_credentials",
     }),
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
   });
-  tokenCache = { value: body.access_token, expiresAt: Date.now() + body.expires_in * 1000 };
+  tokenCache.set(creds.clientId, { value: body.access_token, expiresAt: Date.now() + body.expires_in * 1000 });
   return body.access_token;
 }
 
 /** Mint a single-use, ephemeral, pre-authorized, tagged auth key. */
-export async function mintAgentAuthKey(): Promise<string> {
-  const token = await getAccessToken();
+export async function mintAgentAuthKey(
+  tag: string = config.tailscale.tag,
+  creds: OAuthCreds = AGENT_CREDS()
+): Promise<string> {
+  const token = await getAccessToken(creds);
   const res = await api<{ key: string }>(
     `/tailnet/${encodeURIComponent(config.tailscale.tailnet)}/keys`,
     {
@@ -89,7 +108,7 @@ export async function mintAgentAuthKey(): Promise<string> {
               reusable: false,
               ephemeral: true,
               preauthorized: true,
-              tags: [config.tailscale.tag],
+              tags: [tag],
             },
           },
         },
@@ -144,20 +163,23 @@ export async function findAgentDevice(agentId: string): Promise<TailnetDevice | 
  * Best-effort: never throws.
  */
 export async function removeAgentDevices(agentId: string): Promise<void> {
+  await removeDevicesByHostname(tailnetHostnameFor(agentId), config.tailscale.tag);
+}
+
+export async function removeDevicesByHostname(hostname: string, tag: string): Promise<void> {
   if (!isTailscaleConfigured()) return;
   try {
-    const hostname = tailnetHostnameFor(agentId);
     const token = await getAccessToken();
     const devices = await listTailnetDevices({ fresh: true });
     const matches = devices.filter(
-      (d) => d.hostname.toLowerCase() === hostname && d.tags.includes(config.tailscale.tag)
+      (d) => d.hostname.toLowerCase() === hostname && d.tags.includes(tag)
     );
     await Promise.all(
       matches.map((d) => api(`/device/${encodeURIComponent(d.id)}`, { method: "DELETE" }, token))
     );
     if (matches.length > 0) deviceCache = null;
   } catch (error) {
-    console.warn(`[tailscale] device cleanup for ${agentId} failed:`, error instanceof Error ? error.message : error);
+    console.warn(`[tailscale] device cleanup for ${hostname} failed:`, error instanceof Error ? error.message : error);
   }
 }
 
@@ -187,13 +209,14 @@ export async function withTailscaleEnv(agentConfig: AgentConfig): Promise<AgentC
   }
 }
 
-export async function probeTailscale(): Promise<TailscaleStatus> {
+export async function probeTailscale(serverOnTailnet = false): Promise<TailscaleStatus> {
   if (!isTailscaleConfigured()) return { configured: false, connected: false };
   try {
     const devices = await listTailnetDevices({ fresh: true });
     return {
       configured: true,
       connected: true,
+      serverOnTailnet,
       agentNodes: devices.filter((d) => d.tags.includes(config.tailscale.tag) && d.connectedToControl).length,
     };
   } catch (error) {

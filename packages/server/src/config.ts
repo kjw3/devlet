@@ -42,6 +42,14 @@ export const config = {
     // "-" means the default tailnet of the OAuth client.
     tailnet: process.env["TAILSCALE_TAILNET"] || "-",
     tag: process.env["TAILSCALE_AGENT_TAG"] || "tag:devlet-agent",
+    // The Devlet server itself joins the tailnet so it can proxy agents whose host
+    // address is unreachable. Needs this tag in tagOwners + a grant to the agent tag.
+    serverTag: process.env["TAILSCALE_SERVER_TAG"] || "tag:devlet-server",
+    // Tailscale only mints a key if the request names ALL tags of the OAuth client, so the
+    // server node needs its own client (tagged only with serverTag), separate from agents'.
+    serverClientId: process.env["TAILSCALE_SERVER_OAUTH_CLIENT_ID"] ?? "",
+    serverClientSecret: process.env["TAILSCALE_SERVER_OAUTH_CLIENT_SECRET"] ?? "",
+    serverEnabled: process.env["TAILSCALE_SERVER_ENABLED"] !== "false",
     // Opt-out: agents join the tailnet unless hired with DEVLET_TAILSCALE=false.
     // Set TAILSCALE_DEFAULT_ENABLED=false to flip this to opt-in.
     defaultEnabled: process.env["TAILSCALE_DEFAULT_ENABLED"] !== "false",

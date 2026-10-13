@@ -42,6 +42,7 @@ import {
 import { probePortainer } from "../platforms/portainer.js";
 import { probeProxmox } from "../platforms/proxmox.js";
 import { probeKomodo } from "../platforms/komodo.js";
+import { isServerOnTailnet } from "../tailscale/node.js";
 import { findAgentDevice, probeTailscale, removeAgentDevices, isTailscaleEnabledFor } from "../tailscale/client.js";
 import { provisionAgent, stopAgent, removeAgent, getAgentLogs } from "../platforms/dispatch.js";
 import {
@@ -802,7 +803,7 @@ export const appRouter = t.router({
     }),
 
     tailscale: t.router({
-      status: authProcedure.query(() => probeTailscale()),
+      status: authProcedure.query(() => probeTailscale(isServerOnTailnet())),
     }),
 
     komodo: t.router({

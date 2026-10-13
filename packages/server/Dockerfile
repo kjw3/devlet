@@ -1,4 +1,7 @@
 ARG NODE_IMAGE=node:22.23.3-slim
+ARG TAILSCALE_IMAGE=tailscale/tailscale:v1.102.4
+FROM ${TAILSCALE_IMAGE} AS tailscale_source
+
 FROM ${NODE_IMAGE}
 
 ARG PNPM_VERSION=10.33.0
@@ -9,6 +12,9 @@ ARG REPOSITORY_URL=https://github.com/kjw3/devlet
 
 RUN npm install -g pnpm@${PNPM_VERSION}
 RUN apt-get update && apt-get install -y --no-install-recommends openssh-client && rm -rf /var/lib/apt/lists/*
+
+# Tailscale binaries so the server can join the tailnet (userspace) to proxy agents over it
+COPY --from=tailscale_source /usr/local/bin/tailscale /usr/local/bin/tailscaled /usr/local/bin/
 
 WORKDIR /app
 

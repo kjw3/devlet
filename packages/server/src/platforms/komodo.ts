@@ -23,6 +23,54 @@ type GpuCacheEntry = GpuInfo & { ts: number };
 const gpuCache = new Map<string, GpuCacheEntry>();
 const gpuInFlight = new Map<string, Promise<GpuInfo>>();
 
+// A server's LAN address changes rarely; cache it (including "couldn't detect") for an hour.
+const HOST_TTL_MS = 60 * 60 * 1000;
+const HOST_PROBE_TIMEOUT_MS = 45_000; // first run may pull busybox on the server
+const hostCache = new Map<string, { host: string | null; ts: number }>();
+const hostInFlight = new Map<string, Promise<string | null>>();
+
+// Komodo's periphery often runs in a container, where `ip route` only sees the Docker
+// bridge. In that case ask the real host network namespace via a throwaway --net=host
+// container. The command prints the kernel's chosen source address for an outbound route.
+const LAN_IP_COMMAND =
+  "if [ -f /.dockerenv ]; then docker run --rm --net=host busybox:1.37 ip -4 route get 1.1.1.1 2>/dev/null; " +
+  "else ip -4 route get 1.1.1.1 2>/dev/null; fi";
+
+async function detectLanHost(komodo: Komodo, serverName: string): Promise<string | null> {
+  const stream = await komodo.execute_terminal_stream({
+    target: { type: "Server", params: { server: serverName } },
+    terminal: `devlet-host-${serverName}`,
+    command: LAN_IP_COMMAND,
+    init: { command: "bash", recreate: Types.TerminalRecreateMode.Always },
+  });
+  const chunks: string[] = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  // `ip` colours its output on a tty; strip ANSI escapes before matching.
+  const output = chunks.join("").replace(/\u001b\[[0-9;]*m/g, "");
+  const match = output.match(/\bsrc (\d{1,3}(?:\.\d{1,3}){3})\b/);
+  return match?.[1] ?? null;
+}
+
+async function getLanHostForServer(komodo: Komodo, serverName: string): Promise<string | null> {
+  const cached = hostCache.get(serverName);
+  if (cached && Date.now() - cached.ts < HOST_TTL_MS) return cached.host;
+  const inFlight = hostInFlight.get(serverName);
+  if (inFlight) return inFlight;
+
+  const promise = withTimeout(detectLanHost(komodo, serverName), HOST_PROBE_TIMEOUT_MS, null)
+    .catch(() => null)
+    .then((host) => {
+      hostCache.set(serverName, { host, ts: Date.now() });
+      return host;
+    })
+    .finally(() => {
+      hostInFlight.delete(serverName);
+    });
+
+  hostInFlight.set(serverName, promise);
+  return promise;
+}
+
 function normalizeState(state?: string): KomodoServerState {
   switch (state) {
     case "Ok":
@@ -110,13 +158,17 @@ export async function probeKomodo(): Promise<KomodoStatus> {
         const online = state === "ok";
         const gpu = online ? await getGpuForServer(komodo, s.name) : undefined;
         // Preference: explicit KOMODO_SERVER_HOSTS mapping, then the address Komodo
-        // has for the server, then a dotted server name (likely an FQDN), and only
-        // last the public IP (a shared WAN address that is rarely the server itself).
+        // has for the server, then the LAN address detected on the server itself, then a
+        // dotted server name (likely an FQDN), and only last the public IP (a shared WAN
+        // address that is rarely the server itself).
         const mapped = appConfig.komodo.serverHosts[s.name] ?? appConfig.komodo.serverHosts[s.id];
+        const komodoAddress = s.info?.external_address || s.info?.address || "";
+        const detected =
+          online && !mapped && !komodoAddress ? await getLanHostForServer(komodo, s.name) : null;
         const host =
           (
             mapped ??
-            (s.info?.external_address || s.info?.address || (s.name.includes(".") ? s.name : "") || s.info?.public_ip || "")
+            (komodoAddress || detected || (s.name.includes(".") ? s.name : "") || s.info?.public_ip || "")
           ).replace(/^https?:\/\//, "") || undefined;
 
         return {

@@ -48,10 +48,13 @@ else
         || ts serve --bg --http="$2" "http://127.0.0.1:$3" >>"$_log" 2>&1 \
         || echo "[devlet-tailscale] could not serve port $3"
     }
-    [ -n "${DEVLET_TERMINAL_PORT:-}" ] && _serve 443 80 "$DEVLET_TERMINAL_PORT"
+    # Raw TCP forwards on the same ports let the Devlet server's own tailnet node proxy
+    # these surfaces without TLS/cert handling (WireGuard already encrypts the hop).
+    _forward() { ts serve --bg --tcp="$1" "tcp://127.0.0.1:$1" >>"$_log" 2>&1 || echo "[devlet-tailscale] could not forward tcp $1"; }
+    [ -n "${DEVLET_TERMINAL_PORT:-}" ] && { _serve 443 80 "$DEVLET_TERMINAL_PORT"; _forward "$DEVLET_TERMINAL_PORT"; }
     case "${DEVLET_AGENT_TYPE:-}" in
-      openclaw) _serve 8443 8080 18789 ;;
-      moltis)   _serve 8443 8080 13131 ;;
+      openclaw) _serve 8443 8080 18789; _forward 18789 ;;
+      moltis)   _serve 8443 8080 13131; _forward 13131 ;;
     esac
 
     echo "[devlet-tailscale] online as ${_host} ($(ts ip -4 2>/dev/null | head -n1))"

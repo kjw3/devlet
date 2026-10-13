@@ -193,6 +193,11 @@ export function Settings() {
             ) : tailscale.data.connected ? (
               <div className="text-gray-300">
                 connected — {tailscale.data.agentNodes ?? 0} agent node{tailscale.data.agentNodes === 1 ? "" : "s"} online
+                <div className="text-[11px] mt-1 text-gray-500">
+                  {tailscale.data.serverOnTailnet
+                    ? "Devlet server is on the tailnet — agent links proxy over it when the host is unreachable"
+                    : "Devlet server is not on the tailnet — add the tag:devlet-server tag + grant to enable tailnet proxy fallback"}
+                </div>
               </div>
             ) : (
               <div className="text-red-400 break-words">

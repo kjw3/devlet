@@ -19,6 +19,7 @@ Pinned as of 2026-10-13:
 | `ttyd` | `1.7.7` | upstream Git tags |
 | `herdr` (`herdrdev/herdr`) | `v0.9.3` (sha256-verified in `Dockerfile.base`) | GitHub releases; pick a release at least two weeks old |
 | `tailscale` / `tailscaled` | `1.102.4` (sha256-verified in `Dockerfile.base`) | pkgs.tailscale.com stable tarballs; pick a release at least two weeks old |
+| `tailscale/tailscale` image (server build, binaries copied) | `v1.102.4` | Docker Hub official image; keep in step with the agent-base pin |
 | `tmux` | Debian package | apt |
 | `ghcr.io/astral-sh/uv` | `0.13.0` | upstream Git tags |
 | `NousResearch/hermes-agent` | `v2026.9.24` | upstream Git tags |

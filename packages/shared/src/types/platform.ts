@@ -112,6 +112,8 @@ export interface TailscaleStatus {
   configured: boolean;
   /** An OAuth token could be obtained and the tailnet API answered. */
   connected: boolean;
+  /** The Devlet server itself is on the tailnet (needed to proxy agents over it). */
+  serverOnTailnet?: boolean;
   /** Devlet-tagged nodes currently on the tailnet. */
   agentNodes?: number;
   error?: string;

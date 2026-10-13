@@ -16,6 +16,7 @@ import {
   type AgentAccessSurface,
 } from "./agent-access.js";
 import { config } from "./config.js";
+import { selectUpstream, startServerTailnetNode } from "./tailscale/node.js";
 import { bootstrapSshKeysFromEnv } from "./ssh/keyStore.js";
 
 const server = Fastify();
@@ -36,7 +37,7 @@ await server.register(cors, {
 });
 
 type ProxyResolution =
-  | { ok: true; targetUrl: string; rewrittenPath: string }
+  | { ok: true; agentId: string; surface: AgentAccessSurface; targetUrl: string; rewrittenPath: string }
   | { ok: false; statusCode: number; message: string };
 
 function toWebSocketTarget(targetUrl: string): string {
@@ -84,6 +85,8 @@ async function resolveAgentProxyRequest(requestUrl: string): Promise<ProxyResolu
 
   return {
     ok: true,
+    agentId,
+    surface,
     targetUrl,
     rewrittenPath: `${pathname}${query ? `?${query}` : ""}`,
   };
@@ -113,7 +116,7 @@ server.addHook("onRequest", async (request, reply) => {
 
   request.raw.url = resolution.rewrittenPath;
   reply.hijack();
-  agentUiProxy.web(request.raw, reply.raw, { target: resolution.targetUrl });
+  agentUiProxy.web(request.raw, reply.raw, await selectUpstream(resolution.agentId, resolution.surface, resolution.targetUrl));
   return reply;
 });
 
@@ -184,7 +187,7 @@ server.all("/agent-access/:agentId/:surface/:proxyToken", async (request: Fastif
 
   request.raw.url = resolution.rewrittenPath;
   reply.hijack();
-  agentUiProxy.web(request.raw, reply.raw, { target: resolution.targetUrl });
+  agentUiProxy.web(request.raw, reply.raw, await selectUpstream(resolution.agentId, resolution.surface, resolution.targetUrl));
 });
 
 server.all("/agent-access/:agentId/:surface/:proxyToken/*", async (request: FastifyRequest, reply: FastifyReply) => {
@@ -196,7 +199,7 @@ server.all("/agent-access/:agentId/:surface/:proxyToken/*", async (request: Fast
 
   request.raw.url = resolution.rewrittenPath;
   reply.hijack();
-  agentUiProxy.web(request.raw, reply.raw, { target: resolution.targetUrl });
+  agentUiProxy.web(request.raw, reply.raw, await selectUpstream(resolution.agentId, resolution.surface, resolution.targetUrl));
 });
 
 server.server.on("upgrade", async (request, socket, head) => {
@@ -209,7 +212,8 @@ server.server.on("upgrade", async (request, socket, head) => {
     }
 
     request.url = hostResolution.rewrittenPath;
-    agentUiProxy.ws(request, socket, head, { target: toWebSocketTarget(hostResolution.targetUrl) });
+    const upstream = await selectUpstream(hostResolution.agentId, hostResolution.surface, hostResolution.targetUrl);
+    agentUiProxy.ws(request, socket, head, { ...upstream, target: toWebSocketTarget(upstream.target) });
     return;
   }
 
@@ -221,7 +225,8 @@ server.server.on("upgrade", async (request, socket, head) => {
   }
 
   request.url = resolution.rewrittenPath;
-  agentUiProxy.ws(request, socket, head, { target: toWebSocketTarget(resolution.targetUrl) });
+  const upstream = await selectUpstream(resolution.agentId, resolution.surface, resolution.targetUrl);
+  agentUiProxy.ws(request, socket, head, { ...upstream, target: toWebSocketTarget(upstream.target) });
 });
 
 await server.listen({
@@ -232,6 +237,9 @@ await server.listen({
 console.log("Devlet server listening on http://localhost:3001");
 
 await bootstrapSshKeysFromEnv();
+
+// Join the tailnet in the background so the agent-access proxy can fall back to it.
+void startServerTailnetNode();
 
 // ─── Background: sync agent status when containers exit ───────────────────────
 async function syncAgentStatuses(): Promise<void> {
