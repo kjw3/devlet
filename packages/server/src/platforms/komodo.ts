@@ -15,7 +15,7 @@ import { config as appConfig } from "../config.js";
  */
 
 const GPU_TTL_MS = 5 * 60 * 1000;
-const GPU_PROBE_TIMEOUT_MS = 15_000;
+const GPU_PROBE_TIMEOUT_MS = 45_000; // first run on a GPU host may pull debian:12-slim
 
 type GpuInfo = { gpuAvailable: boolean; gpuModel?: string };
 type GpuCacheEntry = GpuInfo & { ts: number };
@@ -91,11 +91,20 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
   ]);
 }
 
+// Host-level nvidia-smi when the Komodo agent runs on the host. When it runs in a container
+// (no nvidia-smi, no /dev/nvidia*), use Docker's NVIDIA runtime instead, which injects
+// nvidia-smi into any glibc container started with --gpus all. The runtime check keeps
+// servers without NVIDIA support from pulling an image they cannot use.
+const GPU_COMMAND =
+  "{ nvidia-smi -L 2>/dev/null || " +
+  "{ [ -f /.dockerenv ] && docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia && " +
+  "docker run --rm --gpus all debian:12-slim nvidia-smi -L 2>/dev/null; }; } || echo NO_NVIDIA_SMI";
+
 async function detectGpu(komodo: Komodo, serverName: string): Promise<GpuInfo> {
   const stream = await komodo.execute_terminal_stream({
     target: { type: "Server", params: { server: serverName } },
     terminal: `devlet-gpu-${serverName}`,
-    command: "nvidia-smi -L 2>&1 || echo NO_NVIDIA_SMI",
+    command: GPU_COMMAND,
     init: { command: "bash", recreate: Types.TerminalRecreateMode.Always },
   });
   const chunks: string[] = [];
