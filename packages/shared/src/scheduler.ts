@@ -98,6 +98,31 @@ function architectureReason(arch: PlatformArchitecture | undefined): string | nu
   return null;
 }
 
+// ─── Host pool selection ──────────────────────────────────────────────────────
+
+/**
+ * Choose which hosts a workload may land on. GPU work needs a GPU host. Everything
+ * else goes to non-GPU hosts so GPU machines stay free for GPU work, and only falls
+ * back to a GPU host when no other host is online.
+ */
+function selectHostPool<T>(
+  online: T[],
+  gpuHosts: T[],
+  gpuRequired: boolean
+): { pool: T[]; usingReservedGpuHost: boolean } {
+  if (gpuRequired) return { pool: gpuHosts, usingReservedGpuHost: false };
+  const nonGpu = online.filter((host) => !gpuHosts.includes(host));
+  if (nonGpu.length > 0) return { pool: nonGpu, usingReservedGpuHost: false };
+  return { pool: online, usingReservedGpuHost: gpuHosts.length > 0 };
+}
+
+// Applied when a platform can only offer a GPU host for non-GPU work, so platforms with
+// a free CPU host win the comparison.
+const GPU_RESERVED_PENALTY = 25;
+const GPU_RESERVED_FALLBACK_REASON =
+  "only GPU hosts are online — using one because no non-GPU host is available";
+const GPU_RESERVED_PREFERENCE_REASON = "non-GPU host preferred — GPU hosts are kept free for GPU workloads";
+
 // ─── Platform scorers ─────────────────────────────────────────────────────────
 
 function scoreDocker(
@@ -143,6 +168,12 @@ function scoreDocker(
   if (reqs.gpu?.required && status.gpuAvailable) {
     score += 30;
     reasons.push("GPU available via container runtime passthrough");
+  }
+
+  // Keep the local GPU host free for GPU work when other platforms can take this one.
+  if (!reqs.gpu?.required && status.gpuAvailable) {
+    score -= GPU_RESERVED_PENALTY;
+    reasons.push("Docker host has a GPU — kept free for GPU workloads unless nothing else is available");
   }
 
   // Type affinity (0–30 pts)
@@ -206,9 +237,8 @@ function scorePortainer(
     });
   }
 
-  const targetEndpoint = reqs.gpu?.required
-    ? sortEndpoints(gpuEndpoints)[0]
-    : sortEndpoints(onlineEndpoints)[0];
+  const endpointPool = selectHostPool(onlineEndpoints, gpuEndpoints, reqs.gpu?.required ?? false);
+  const targetEndpoint = sortEndpoints(endpointPool.pool)[0];
 
   const platform: PlatformTarget = {
     type: "portainer",
@@ -307,6 +337,13 @@ function scorePortainer(
     reasons.push("large memory request — Portainer provides better resource management");
   }
 
+  if (!reqs.gpu?.required) {
+    if (endpointPool.usingReservedGpuHost) {
+      score -= GPU_RESERVED_PENALTY;
+      reasons.push(GPU_RESERVED_FALLBACK_REASON);
+    } else if (gpuEndpoints.length > 0) reasons.push(GPU_RESERVED_PREFERENCE_REASON);
+  }
+
   return { platform, score: Math.max(0, score), available: true, reasons };
 }
 
@@ -320,8 +357,8 @@ function scoreProxmox(
   const gpuNodes = onlineNodes.filter((n) => (n.gpuCount ?? 0) > 0);
 
   // Find the best-fit node: most free memory, GPU if needed
-  const candidateNodes = reqs.gpu?.required ? gpuNodes : onlineNodes;
-  const targetNode = candidateNodes
+  const nodePool = selectHostPool(onlineNodes, gpuNodes, reqs.gpu?.required ?? false);
+  const targetNode = nodePool.pool
     .slice()
     .sort(
       (a, b) =>
@@ -418,6 +455,13 @@ function scoreProxmox(
     reasons.push("large workload — dedicated VM/LXC provides better isolation");
   }
 
+  if (!reqs.gpu?.required) {
+    if (nodePool.usingReservedGpuHost) {
+      score -= GPU_RESERVED_PENALTY;
+      reasons.push(GPU_RESERVED_FALLBACK_REASON);
+    } else if (gpuNodes.length > 0) reasons.push(GPU_RESERVED_PREFERENCE_REASON);
+  }
+
   return { platform, score: Math.max(0, score), available: true, reasons };
 }
 
@@ -431,8 +475,8 @@ function scoreKomodo(
   const gpuServers = onlineServers.filter((s) => s.gpuAvailable);
 
   // Best-fit server: architecture first, then most free memory
-  const candidateServers = reqs.gpu?.required ? gpuServers : onlineServers;
-  const targetServer = candidateServers
+  const serverPool = selectHostPool(onlineServers, gpuServers, reqs.gpu?.required ?? false);
+  const targetServer = serverPool.pool
     .slice()
     .sort(
       (a, b) =>
@@ -528,6 +572,13 @@ function scoreKomodo(
   if (reqs.persistent) {
     score += 20;
     reasons.push("persistent — Komodo deployments are named resources with lifecycle management");
+  }
+
+  if (!reqs.gpu?.required) {
+    if (serverPool.usingReservedGpuHost) {
+      score -= GPU_RESERVED_PENALTY;
+      reasons.push(GPU_RESERVED_FALLBACK_REASON);
+    } else if (gpuServers.length > 0) reasons.push(GPU_RESERVED_PREFERENCE_REASON);
   }
 
   return { platform, score: Math.max(0, score), available: true, reasons };

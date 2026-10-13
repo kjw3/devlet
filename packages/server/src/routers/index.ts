@@ -23,6 +23,12 @@ import {
 import { randomUUID, timingSafeEqual } from "crypto";
 import { z } from "zod";
 import { AddSshKeyInputSchema } from "@devlet/shared";
+import {
+  allocateFreeKomodoMoltisPort,
+  allocateFreeKomodoOpenClawPort,
+  allocateFreeKomodoSshPort,
+  allocateFreeKomodoTerminalPort,
+} from "../platforms/komodo-deploy.js";
 import { listImages, probeDocker, allocateFreeOpenClawPort, allocateFreeSshPort, allocateFreeTerminalPort, allocateFreeMoltisPort } from "../platforms/docker.js";
 import {
   allocateFreePortainerMoltisPort,
@@ -326,6 +332,23 @@ async function ensureAgentAccessPorts(config: AgentConfig, sshEnabled: boolean):
       config.env["MOLTIS_HOST_PORT"] = String(
         await allocateFreePortainerMoltisPort(config.platform.endpointId)
       );
+    }
+    return;
+  }
+
+  if (config.platform.type === "komodo") {
+    const serverId = config.platform.serverId;
+    if (!config.env["DEVLET_TERMINAL_PORT"]) {
+      config.env["DEVLET_TERMINAL_PORT"] = String(await allocateFreeKomodoTerminalPort(serverId));
+    }
+    if (sshEnabled && !config.env["DEVLET_SSH_PORT"]) {
+      config.env["DEVLET_SSH_PORT"] = String(await allocateFreeKomodoSshPort(serverId));
+    }
+    if (config.type === "openclaw" && !config.env["OPENCLAW_HOST_PORT"]) {
+      config.env["OPENCLAW_HOST_PORT"] = String(await allocateFreeKomodoOpenClawPort(serverId));
+    }
+    if (config.type === "moltis" && !config.env["MOLTIS_HOST_PORT"]) {
+      config.env["MOLTIS_HOST_PORT"] = String(await allocateFreeKomodoMoltisPort(serverId));
     }
     return;
   }

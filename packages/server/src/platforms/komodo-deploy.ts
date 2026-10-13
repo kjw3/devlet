@@ -3,6 +3,7 @@ import type { AgentConfig } from "@devlet/shared";
 import { AGENT_IMAGE } from "./docker.js";
 import { buildContainerEnv } from "./env.js";
 import { getKomodoClient, type Komodo } from "./komodo-client.js";
+import { listAgentStates } from "../agents/state.js";
 
 /**
  * Komodo container lifecycle.
@@ -53,8 +54,52 @@ function buildPortMappings(agentConfig: AgentConfig): string {
     const hostPort = agentConfig.env["MOLTIS_HOST_PORT"] ?? "13131";
     pairs.push(`${hostPort}:13131`); // container gateway listens on fixed 13131
   }
-  return pairs.join(" ");
+  // Komodo expects one mapping per line; each becomes its own `-p` flag.
+  return pairs.join("\n");
 }
+
+// ─── Port allocation ──────────────────────────────────────────────────────────
+// Ports are published on the Komodo server's host, so "free" must be judged on
+// that host, not on the machine running Devlet. A port is taken if any container
+// there publishes it, or if a live Devlet agent already placed on the same server
+// was assigned it (covers agents that are provisioning and not yet visible).
+const AGENT_PORT_ENV_KEYS = [
+  "DEVLET_TERMINAL_PORT",
+  "DEVLET_SSH_PORT",
+  "OPENCLAW_HOST_PORT",
+  "MOLTIS_HOST_PORT",
+] as const;
+
+async function allocateFreeKomodoPort(serverId: string, start: number, end: number): Promise<number> {
+  const used = new Set<number>();
+
+  const containers = await client().read("ListContainers", { server: serverId });
+  for (const container of containers) {
+    for (const port of container.ports ?? []) {
+      if (typeof port.PublicPort === "number") used.add(port.PublicPort);
+    }
+  }
+
+  for (const state of await listAgentStates().catch(() => [])) {
+    if (state.status === "terminated") continue;
+    const platform = state.config.platform;
+    if (platform.type !== "komodo" || platform.serverId !== serverId) continue;
+    for (const key of AGENT_PORT_ENV_KEYS) {
+      const value = Number(state.config.env[key]);
+      if (Number.isInteger(value)) used.add(value);
+    }
+  }
+
+  for (let port = start; port <= end; port++) {
+    if (!used.has(port)) return port;
+  }
+  throw new Error(`No free port available in range ${start}-${end} on Komodo server ${serverId}`);
+}
+
+export const allocateFreeKomodoTerminalPort = (serverId: string) => allocateFreeKomodoPort(serverId, 7681, 8681);
+export const allocateFreeKomodoSshPort = (serverId: string) => allocateFreeKomodoPort(serverId, 2222, 3222);
+export const allocateFreeKomodoOpenClawPort = (serverId: string) => allocateFreeKomodoPort(serverId, 18789, 19789);
+export const allocateFreeKomodoMoltisPort = (serverId: string) => allocateFreeKomodoPort(serverId, 13131, 14131);
 
 // ─── Extra `docker run` args (resources + GPU passthrough) ────────────────────
 function buildExtraArgs(agentConfig: AgentConfig): string[] {
