@@ -52,3 +52,23 @@ the Docker host and the server proxies to them via `DEVLET_DOCKER_PROXY_HOST`
 ## Proxmox
 
 Discovery and placement only; provisioning agents on Proxmox is not implemented yet.
+
+## LiteLLM gateway
+
+With `LITELLM_BASE_URL` + `LITELLM_API_KEY` set, every coding agent routes through LiteLLM, and the
+model is picked from the gateway's `/v1/models` (or set explicitly on the Providers page).
+
+**Context window.** Claude Code assumes a 200k-token window for model names it does not recognise
+(every gateway alias), which is wrong for most gateway models: a 57k model would never compact before
+hitting API errors, and a 1M model would compact far too early. At agent start Devlet therefore reads
+the model's real `max_input_tokens` / `max_output_tokens` from the gateway's
+`/model_group/info` and passes them to Claude Code as `CLAUDE_CODE_MAX_CONTEXT_TOKENS` and
+`CLAUDE_CODE_MAX_OUTPUT_TOKENS`. The agent log shows the result:
+`[devlet] litellm: claude model=decent-code context=57344 max_output=8192`.
+
+- The key needs permission to call the model-info routes. A LiteLLM virtual key restricted to
+  `llm_api_routes` (the default for locked-down keys) is denied; allow `info_routes` as well, e.g.
+  `allowed_routes: ["llm_api_routes", "info_routes"]`. These routes only return model metadata.
+- If the lookup is denied or the model is unknown, Claude Code keeps its 200k default (and shows
+  its "isn't described by this version's model catalog" warning). Set `LITELLM_CONTEXT_TOKENS` to
+  override the window manually; it takes priority over the discovered value.

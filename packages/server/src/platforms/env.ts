@@ -28,6 +28,7 @@ const FORWARDED_KEYS = [
   "LITELLM_BASE_URL",
   "LITELLM_API_KEY",
   "LITELLM_MODEL",
+  "LITELLM_CONTEXT_TOKENS",
   "NVIDIA_API_KEY",
   // Tool / search APIs used by some agents (e.g. Hermes)
   "FIRECRAWL_API_KEY",

@@ -61,6 +61,29 @@ else:
 ' "$1" 2>/dev/null
 }
 
+# Context limits for a LiteLLM model, read from the gateway's model-group info
+# (needs the key to be allowed info_routes). Prints "<max_input> <max_output>" with either
+# part empty when unknown; prints nothing when the lookup is denied or fails.
+# Claude Code assumes 200k for model names it doesn't recognise, so real limits matter.
+_dci_litellm_limits() {  # $1 = model id
+  [ -n "$1" ] || return 0
+  curl -fsS --connect-timeout 3 -m 6 -H "Authorization: Bearer $LITELLM_API_KEY" \
+    "${_dci_litellm_base}/model_group/info" 2>/dev/null \
+    | python3 -c '
+import sys, json
+want = sys.argv[1]
+try:
+    rows = json.load(sys.stdin).get("data", [])
+except Exception:
+    sys.exit(0)
+for m in rows:
+    if m.get("model_group") == want:
+        i, o = m.get("max_input_tokens"), m.get("max_output_tokens")
+        print(int(i) if i else "", int(o) if o else "")
+        break
+' "$1" 2>/dev/null
+}
+
 # Per-tool wrappers: LiteLLM settings are applied by a small launcher placed ahead
 # of the real CLI on PATH, NOT exported globally. Global exports leak across tools
 # (e.g. a LiteLLM key in GEMINI_API_KEY makes Pi choose Google and send it there).
@@ -95,8 +118,19 @@ unset ANTHROPIC_API_KEY"
 $(_dci_kv "$_dci_v" "$_dci_gmodel")"
       done
     fi
+    # Tell Claude Code the model's real window (it can't know for gateway aliases).
+    # Precedence: LITELLM_CONTEXT_TOKENS override, then the gateway's reported limits.
+    if [ -n "$_dci_gmodel" ]; then
+      _dci_limits=$(_dci_litellm_limits "$_dci_gmodel")
+      _dci_ctx="${_dci_limits%% *}"; _dci_out="${_dci_limits##* }"
+      [ -n "${LITELLM_CONTEXT_TOKENS:-}" ] && _dci_ctx="$LITELLM_CONTEXT_TOKENS"
+      [ -n "$_dci_ctx" ] && _dci_env="$_dci_env
+$(_dci_kv CLAUDE_CODE_MAX_CONTEXT_TOKENS "$_dci_ctx")"
+      [ -n "$_dci_out" ] && _dci_env="$_dci_env
+$(_dci_kv CLAUDE_CODE_MAX_OUTPUT_TOKENS "$_dci_out")"
+    fi
     _dci_wrap claude "$_dci_env"
-    echo "[devlet] litellm: claude model=${_dci_gmodel:-<claude default>}"
+    echo "[devlet] litellm: claude model=${_dci_gmodel:-<claude default>} context=${_dci_ctx:-default} max_output=${_dci_out:-default}"
   fi
 fi
 
