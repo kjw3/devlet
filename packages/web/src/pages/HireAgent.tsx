@@ -756,6 +756,24 @@ export function HireAgent() {
                 );
               })()}
 
+              {tailscaleStatus.data?.connected && (
+                <div className="mb-4 flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="tailnet"
+                    checked={form.tailnet}
+                    onChange={(e) => update("tailnet", e.target.checked)}
+                    className="w-3.5 h-3.5 accent-accent-cyan"
+                  />
+                  <label htmlFor="tailnet" className="text-[12px] text-gray-300 cursor-pointer">
+                    Expose on tailnet
+                  </label>
+                  <span className="text-[11px] text-gray-600">
+                    — agent joins your Tailscale network (SSH + web terminal) while it is running
+                  </span>
+                </div>
+              )}
+
               <div className="mb-4">
                 <div className="label mb-2">placement</div>
                 {placementReqs && (

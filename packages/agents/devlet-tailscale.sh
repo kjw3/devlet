@@ -13,7 +13,8 @@
 #   TS_TAGS         — advertised tags (default: tag:devlet-agent)
 #   TS_SSH          — "false" to disable Tailscale SSH (default: true)
 #   DEVLET_TERMINAL_PORT — ttyd port; served on tailnet https :443 when set
-# Nodes join as ephemeral, so they leave the tailnet once the container is gone.
+# The auth key minted by the Devlet server is already ephemeral + pre-authorized, so
+# nodes leave the tailnet once the container is gone. (Don't append ?ephemeral=… to it.)
 
 _dts_authkey="${TS_AUTHKEY:-}"
 
@@ -26,20 +27,17 @@ else
     _host="${TS_HOSTNAME:-devlet-${DEVLET_AGENT_ID:-$(hostname)}}"
     _tags="${TS_TAGS:-tag:devlet-agent}"
     _log="${_dir}/tailscaled.log"
-    mkdir -p "$_dir"
+    mkdir -p "$_dir/state"
     ts() { tailscale --socket="$_sock" "$@"; }
 
-    # ephemeral=true makes the node auto-expire when it goes offline
-    case "$_dts_authkey" in *\?*) ;; *) _dts_authkey="${_dts_authkey}?ephemeral=true&preauthorized=true" ;; esac
-
-    tailscaled --tun=userspace-networking --state=mem: --socket="$_sock" >>"$_log" 2>&1 &
+    tailscaled --tun=userspace-networking --statedir="${_dir}/state" --socket="$_sock" >>"$_log" 2>&1 &
 
     _ssh_flag="--ssh"
     [ "${TS_SSH:-true}" = "false" ] && _ssh_flag="--ssh=false"
 
     if ! ts up --authkey="$_dts_authkey" --hostname="$_host" --advertise-tags="$_tags" \
          "$_ssh_flag" --accept-dns=false --timeout=60s >>"$_log" 2>&1; then
-      echo "[devlet-tailscale] failed to join tailnet — see $_log"
+      echo "[devlet-tailscale] failed to join tailnet: $(grep -E 'invalid key|backend error|Received error|requested tags' "$_log" | tail -n1) (log: $_log)"
       exit 0
     fi
 
