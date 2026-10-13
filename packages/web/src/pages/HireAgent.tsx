@@ -285,11 +285,13 @@ export function HireAgent() {
   const { data: dockerStatus } = trpc.platforms.docker.status.useQuery(undefined, { staleTime: 10_000 });
   const { data: portainerStatus } = trpc.platforms.portainer.status.useQuery(undefined, { staleTime: 10_000 });
   const { data: proxmoxStatus } = trpc.platforms.proxmox.status.useQuery(undefined, { staleTime: 10_000 });
+  const { data: komodoStatus } = trpc.platforms.komodo.status.useQuery(undefined, { staleTime: 15_000 });
 
   const liveContext = {
     ...(dockerStatus ? { docker: dockerStatus } : {}),
     ...(portainerStatus ? { portainer: portainerStatus } : {}),
     ...(proxmoxStatus ? { proxmox: proxmoxStatus } : {}),
+    ...(komodoStatus ? { komodo: komodoStatus } : {}),
   };
 
   // For single-task, exclude Proxmox from placement options entirely
@@ -298,6 +300,7 @@ export function HireAgent() {
         ...(dockerStatus ? { docker: dockerStatus } : {}),
         ...(portainerStatus ? { portainer: portainerStatus } : {}),
         proxmox: DISCONNECTED_PROXMOX,
+        ...(komodoStatus ? { komodo: komodoStatus } : {}),
       }
     : liveContext;
 
@@ -322,6 +325,7 @@ export function HireAgent() {
           docker: dockerStatus ?? null,
           portainer: portainerStatus ?? null,
           proxmox: form.mode === "single-task" ? DISCONNECTED_PROXMOX : (proxmoxStatus ?? null),
+          komodo: komodoStatus ?? null,
         })
       : null;
 
@@ -603,6 +607,8 @@ export function HireAgent() {
                       ? `Portainer / ${resolvedPlatform.endpointName ?? `endpoint ${resolvedPlatform.endpointId}`}`
                       : resolvedPlatform.type === "proxmox"
                       ? `Proxmox / ${resolvedPlatform.node} (${resolvedPlatform.vmType})`
+                      : resolvedPlatform.type === "komodo"
+                      ? `Komodo / ${resolvedPlatform.serverName ?? resolvedPlatform.serverId}`
                       : "Docker"}
                   </span>
                 </div>
@@ -754,6 +760,8 @@ export function HireAgent() {
                       ? `Portainer / ${resolvedPlatform.endpointName ?? `endpoint ${resolvedPlatform.endpointId}`}`
                       : resolvedPlatform.type === "proxmox"
                       ? `Proxmox / ${resolvedPlatform.node} (${resolvedPlatform.vmType})`
+                      : resolvedPlatform.type === "komodo"
+                      ? `Komodo / ${resolvedPlatform.serverName ?? resolvedPlatform.serverId}`
                       : "Docker"}
                   </span>
                 </div>

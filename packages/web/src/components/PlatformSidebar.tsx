@@ -1,4 +1,4 @@
-import type { DockerStatus, PortainerStatus, ProxmoxStatus } from "@devlet/shared";
+import type { DockerStatus, KomodoStatus, PortainerStatus, ProxmoxStatus } from "@devlet/shared";
 import { trpc } from "../trpc.js";
 
 function ConnIcon({ ok, loading }: { ok: boolean; loading?: boolean }) {
@@ -161,6 +161,58 @@ function ProxmoxPanel({ status, loading }: { status?: ProxmoxStatus; loading: bo
   );
 }
 
+function KomodoPanel({ status, loading }: { status?: KomodoStatus; loading: boolean }) {
+  const utils = trpc.useUtils();
+  const toggleExcluded = trpc.platforms.komodo.setExcluded.useMutation({
+    onSuccess: () => {
+      void utils.platforms.komodo.status.invalidate();
+      void utils.platforms.portainer.status.invalidate();
+    },
+  });
+
+  return (
+    <Section title="Komodo">
+      <div className="flex items-center gap-2 mb-2">
+        <ConnIcon ok={status?.connected ?? false} loading={loading} />
+        <span className="text-[12px] text-gray-300">
+          {loading ? "..." : status?.connected ? `v${status.version}` : "disconnected"}
+        </span>
+      </div>
+      {!status?.connected && status?.error && (
+        <div className="text-[11px] text-gray-600 italic">{status.error}</div>
+      )}
+      {status?.connected && (
+        <div className="space-y-0.5">
+          {[...status.servers].sort((a, b) => a.name.localeCompare(b.name)).map((server) => (
+            <div key={server.id} className="group flex items-center justify-between text-[11px] py-0.5">
+              <span className={`truncate min-w-0 ${server.excluded ? "text-gray-600 line-through" : "text-gray-300"}`}>
+                {server.name}
+              </span>
+              <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
+                <ArchBadge arch={server.architecture} />
+                {server.gpuAvailable && (
+                  <span className="text-[9px] text-accent-purple">GPU</span>
+                )}
+                <button
+                  className="hidden group-hover:inline label text-[9px] text-gray-500 hover:text-gray-300 transition-colors"
+                  disabled={toggleExcluded.isPending}
+                  onClick={() =>
+                    toggleExcluded.mutate({ target: server.name, excluded: !server.excluded })
+                  }
+                  type="button"
+                >
+                  {server.excluded ? "include" : "exclude"}
+                </button>
+                <span className={`status-dot flex-shrink-0 ${server.state === "ok" ? "bg-status-running" : "bg-status-error"}`} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Section>
+  );
+}
+
 export function PlatformSidebar() {
   const { data: docker, isLoading: dockerLoading } = trpc.platforms.docker.status.useQuery(
     undefined,
@@ -174,6 +226,10 @@ export function PlatformSidebar() {
     undefined,
     { refetchInterval: 10_000 }
   );
+  const { data: komodo, isLoading: komodoLoading } = trpc.platforms.komodo.status.useQuery(
+    undefined,
+    { refetchInterval: 15_000 }
+  );
 
   return (
     <aside className="w-52 flex-shrink-0 border-l border-surface-border bg-surface p-4 overflow-y-auto">
@@ -181,6 +237,7 @@ export function PlatformSidebar() {
       <DockerPanel loading={dockerLoading} {...(docker ? { status: docker } : {})} />
       <PortainerPanel loading={portainerLoading} {...(portainer ? { status: portainer } : {})} />
       <ProxmoxPanel loading={proxmoxLoading} {...(proxmox ? { status: proxmox } : {})} />
+      <KomodoPanel loading={komodoLoading} {...(komodo ? { status: komodo } : {})} />
     </aside>
   );
 }

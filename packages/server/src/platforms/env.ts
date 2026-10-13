@@ -27,6 +27,7 @@ const FORWARDED_KEYS = [
   "OPENAI_BASE_URL",
   "LITELLM_BASE_URL",
   "LITELLM_API_KEY",
+  "LITELLM_MODEL",
   "NVIDIA_API_KEY",
   // Tool / search APIs used by some agents (e.g. Hermes)
   "FIRECRAWL_API_KEY",
@@ -38,7 +39,7 @@ const OPENCLAW_PROVIDER_KEYS: Record<string, readonly string[]> = {
   openai: ["OPENAI_API_KEY", "OPENAI_BASE_URL"],
   gemini: ["GEMINI_API_KEY"],
   openrouter: ["OPENROUTER_API_KEY"],
-  litellm: ["LITELLM_BASE_URL", "LITELLM_API_KEY"],
+  litellm: ["LITELLM_BASE_URL", "LITELLM_API_KEY", "LITELLM_MODEL"],
   nvidia: ["NVIDIA_API_KEY"],
   groq: ["GROQ_API_KEY"],
 } as const;

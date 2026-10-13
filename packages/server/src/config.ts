@@ -36,4 +36,10 @@ export const config = {
     insecure: process.env["PROXMOX_INSECURE"] === "true",
     excludedNodes: parseCsvSet(process.env["PROXMOX_EXCLUDED_NODES"] ?? ""),
   },
+  komodo: {
+    url: process.env["KOMODO_URL"] ?? "",
+    apiKey: process.env["KOMODO_API_KEY"] ?? "",
+    apiSecret: process.env["KOMODO_API_SECRET"] ?? "",
+    excludedServers: parseCsvSet(process.env["KOMODO_EXCLUDED_SERVERS"] ?? ""),
+  },
 } as const;

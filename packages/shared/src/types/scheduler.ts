@@ -49,4 +49,5 @@ export interface SchedulerContext {
   docker: import("./platform.js").DockerStatus | null;
   portainer: import("./platform.js").PortainerStatus | null;
   proxmox: import("./platform.js").ProxmoxStatus | null;
+  komodo: import("./platform.js").KomodoStatus | null;
 }

@@ -13,18 +13,18 @@ function normalizeArchitecture(value: string | undefined): "amd64" | "arm64" | "
 // Agent images — configurable via env vars.
 export const AGENT_IMAGE: Record<AgentType, string> = {
   // Base image handles claude-code, codex, opencode, pi, gemini via DEVLET_AGENT_TYPE dispatch
-  "claude-code": process.env["AGENT_IMAGE_CLAUDE_CODE"] ?? "devlet/agent-base:latest",
-  "codex":       process.env["AGENT_IMAGE_CODEX"]       ?? "devlet/agent-base:latest",
-  "opencode":    process.env["AGENT_IMAGE_OPENCODE"]    ?? "devlet/agent-base:latest",
-  "pi":          process.env["AGENT_IMAGE_PI"]          ?? "devlet/agent-base:latest",
-  "gemini":      process.env["AGENT_IMAGE_GEMINI"]      ?? "devlet/agent-base:latest",
+  "claude-code": process.env["AGENT_IMAGE_CLAUDE_CODE"] ?? "ghcr.io/kjw3/devlet-agent-base:latest",
+  "codex":       process.env["AGENT_IMAGE_CODEX"]       ?? "ghcr.io/kjw3/devlet-agent-base:latest",
+  "opencode":    process.env["AGENT_IMAGE_OPENCODE"]    ?? "ghcr.io/kjw3/devlet-agent-base:latest",
+  "pi":          process.env["AGENT_IMAGE_PI"]          ?? "ghcr.io/kjw3/devlet-agent-base:latest",
+  "gemini":      process.env["AGENT_IMAGE_GEMINI"]      ?? "ghcr.io/kjw3/devlet-agent-base:latest",
   // Specialised images
-  "openclaw":    process.env["AGENT_IMAGE_OPENCLAW"]    ?? "devlet/agent-openclaw:latest",
-  "nanoclaw":    process.env["AGENT_IMAGE_NANOCLAW"]    ?? "devlet/agent-nanoclaw:latest",
-  "hermes":      process.env["AGENT_IMAGE_HERMES"]      ?? "devlet/agent-hermes:latest",
-  "moltis":      process.env["AGENT_IMAGE_MOLTIS"]      ?? "devlet/agent-moltis:latest",
+  "openclaw":    process.env["AGENT_IMAGE_OPENCLAW"]    ?? "ghcr.io/kjw3/devlet-agent-openclaw:latest",
+  "nanoclaw":    process.env["AGENT_IMAGE_NANOCLAW"]    ?? "ghcr.io/kjw3/devlet-agent-nanoclaw:latest",
+  "hermes":      process.env["AGENT_IMAGE_HERMES"]      ?? "ghcr.io/kjw3/devlet-agent-hermes:latest",
+  "moltis":      process.env["AGENT_IMAGE_MOLTIS"]      ?? "ghcr.io/kjw3/devlet-agent-moltis:latest",
   // Proxmox-only — placeholder until Proxmox provisioning is implemented
-  "nemoclaw":    process.env["AGENT_IMAGE_NEMOCLAW"]    ?? "node:22.22.2-slim",
+  "nemoclaw":    process.env["AGENT_IMAGE_NEMOCLAW"]    ?? "node:22.23.3-slim",
 };
 
 /** Probe a TCP port on 0.0.0.0 to see if it is available on the host. */
@@ -219,7 +219,16 @@ export async function createAgentContainer(config: AgentConfig): Promise<string>
       : createDocker();
 
   const image = AGENT_IMAGE[config.type];
+  const containerName = `devlet-${config.id}`;
   await ensureImage(docker, image);
+
+  const existingContainers = await docker.listContainers({ all: true });
+  const existingContainer = existingContainers.find((container) =>
+    (container.Names ?? []).includes(`/${containerName}`)
+  );
+  if (existingContainer) {
+    await removeContainer(existingContainer.Id);
+  }
 
   const ExposedPorts: Record<string, Record<string, never>> = {};
   const PortBindings: Record<string, Array<{ HostIp: string; HostPort: string }>> = {};
@@ -254,8 +263,20 @@ export async function createAgentContainer(config: AgentConfig): Promise<string>
 
   const container = await docker.createContainer({
     Image: image,
+    name: containerName,
     Env: await buildContainerEnv(config),
     ExposedPorts,
+    ...(config.type === "hermes"
+      ? {
+          Healthcheck: {
+            Test: ["CMD-SHELL", "pgrep -f '^/opt/hermes/.venv/bin/python.*hermes|hermes' >/dev/null"],
+            Interval: 30_000_000_000,
+            Timeout: 5_000_000_000,
+            Retries: 3,
+            StartPeriod: 20_000_000_000,
+          },
+        }
+      : {}),
     Labels: {
       "devlet.agent.id": config.id,
       "devlet.agent.type": config.type,
@@ -266,6 +287,9 @@ export async function createAgentContainer(config: AgentConfig): Promise<string>
       NanoCpus: Math.round(config.resources.cpus * 1e9),
       Memory: config.resources.memoryMb * 1024 * 1024,
       PortBindings,
+      RestartPolicy: {
+        Name: config.persistent ? "unless-stopped" : "no",
+      },
     },
   });
 
@@ -314,8 +338,12 @@ export async function getContainerRunning(containerId: string): Promise<boolean 
   try {
     const info = await docker.getContainer(containerId).inspect() as { State?: { Running?: boolean } };
     return info.State?.Running ?? false;
-  } catch {
-    return null; // container not found
+  } catch (error) {
+    const message = getErrorMessage(error).toLowerCase();
+    if (message.includes("no such container") || message.includes("not found")) {
+      return false;
+    }
+    return null;
   }
 }
 

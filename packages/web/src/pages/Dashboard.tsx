@@ -37,6 +37,9 @@ export function Dashboard() {
   const restartMutation = trpc.agents.restart.useMutation({
     onSuccess: () => void utils.agents.list.invalidate(),
   });
+  const recoverMutation = trpc.agents.recover.useMutation({
+    onSuccess: () => void utils.agents.list.invalidate(),
+  });
 
   const filtered =
     filter === "all" ? agents : agents.filter((a) => a.status === filter);
@@ -132,6 +135,7 @@ export function Dashboard() {
               <AgentCard
                 onDelete={(id) => deleteMutation.mutate(id)}
                 onStart={(id) => restartMutation.mutate(id)}
+                onRecover={(id) => recoverMutation.mutate({ agentId: id })}
                 key={agent.config.id}
                 agent={agent}
                 onFire={(id) => setFireTarget(id)}

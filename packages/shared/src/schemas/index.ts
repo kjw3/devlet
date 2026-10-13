@@ -19,10 +19,17 @@ export const ProxmoxPlatformSchema = z.object({
   vmType: z.enum(["lxc", "qemu"]),
 });
 
+export const KomodoPlatformSchema = z.object({
+  type: z.literal("komodo"),
+  serverId: z.string().min(1),
+  serverName: z.string().optional(),
+});
+
 export const PlatformTargetSchema = z.discriminatedUnion("type", [
   DockerPlatformSchema,
   PortainerPlatformSchema,
   ProxmoxPlatformSchema,
+  KomodoPlatformSchema,
 ]);
 
 // ─── Mission ─────────────────────────────────────────────────────────────────
@@ -159,6 +166,14 @@ export const UpdateMissionInputSchema = z.object({
   mission: MissionSchema,
 });
 
+// ─── Agent Recovery Input ────────────────────────────────────────────────────
+
+export const RecoverAgentInputSchema = z.object({
+  agentId: z.string().min(1),
+  /** If set, bypasses the scheduler and forces the recovery placement. */
+  platformOverride: PlatformTargetSchema.optional(),
+});
+
 // ─── Model Configuration ──────────────────────────────────────────────────────
 
 export const ProviderNameSchema = z.enum([
@@ -193,6 +208,7 @@ export const SetAgentTypeConfigInputSchema = z.object({
 export const PlatformExclusionsSchema = z.object({
   portainerEndpoints: z.array(z.string()).default([]),
   proxmoxNodes: z.array(z.string()).default([]),
+  komodoServers: z.array(z.string()).default([]),
 });
 
 export const SetPortainerExclusionInputSchema = z.object({
@@ -201,6 +217,11 @@ export const SetPortainerExclusionInputSchema = z.object({
 });
 
 export const SetProxmoxExclusionInputSchema = z.object({
+  target: z.string().min(1),
+  excluded: z.boolean(),
+});
+
+export const SetKomodoExclusionInputSchema = z.object({
   target: z.string().min(1),
   excluded: z.boolean(),
 });

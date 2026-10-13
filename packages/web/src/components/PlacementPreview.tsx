@@ -9,6 +9,7 @@ import type {
 } from "@devlet/shared";
 import {
   MOCK_DOCKER_STATUS,
+  MOCK_KOMODO_STATUS,
   MOCK_PORTAINER_STATUS,
   MOCK_PROXMOX_STATUS,
 } from "../mocks/platforms.js";
@@ -17,11 +18,13 @@ const PLATFORM_LABELS: Record<string, string> = {
   docker: "Docker",
   portainer: "Portainer",
   proxmox: "Proxmox",
+  komodo: "Komodo",
 };
 
 function platformLabel(p: PlatformTarget): string {
   if (p.type === "portainer") return `Portainer / ${p.endpointName ?? `endpoint ${p.endpointId}`}`;
   if (p.type === "proxmox") return `Proxmox / ${p.node} (${p.vmType})`;
+  if (p.type === "komodo") return `Komodo / ${p.serverName ?? p.serverId}`;
   return "Docker";
 }
 
@@ -99,6 +102,7 @@ export function PlacementPreview({
     docker: context?.docker ?? MOCK_DOCKER_STATUS,
     portainer: context?.portainer ?? MOCK_PORTAINER_STATUS,
     proxmox: context?.proxmox ?? MOCK_PROXMOX_STATUS,
+    komodo: context?.komodo ?? MOCK_KOMODO_STATUS,
   };
 
   const decision: PlacementDecision = scheduleAgent(requirements, schedulerContext);

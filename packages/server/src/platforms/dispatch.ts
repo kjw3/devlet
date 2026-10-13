@@ -13,18 +13,27 @@ import {
   removePortainerContainer,
   stopPortainerContainer,
 } from "./portainer-deploy.js";
+import {
+  createKomodoContainer,
+  getKomodoContainerLogs,
+  getKomodoContainerRunning,
+  removeKomodoContainer,
+  stopKomodoContainer,
+} from "./komodo-deploy.js";
 
 // ─── platformRef format ───────────────────────────────────────────────────────
 //   pending                           — not yet provisioned
 //   container:{id}                    — local Docker
 //   portainer:{endpointId}:{id}       — Portainer-managed Docker endpoint
 //   proxmox:{node}:{vmType}:{vmId}    — Proxmox LXC or QEMU
+//   komodo:{serverId}:{deploymentName} — Komodo-managed Deployment
 
 type ParsedRef =
   | { type: "pending" }
   | { type: "docker"; containerId: string }
   | { type: "portainer"; endpointId: number; containerId: string }
-  | { type: "proxmox"; node: string; vmType: "lxc" | "qemu"; vmId: string };
+  | { type: "proxmox"; node: string; vmType: "lxc" | "qemu"; vmId: string }
+  | { type: "komodo"; serverId: string; deploymentName: string };
 
 function parsePlatformRef(ref: string): ParsedRef {
   if (ref === "pending") return { type: "pending" };
@@ -46,6 +55,11 @@ function parsePlatformRef(ref: string): ParsedRef {
       vmType: vmType as "lxc" | "qemu",
       vmId: vmId!,
     };
+  }
+
+  if (ref.startsWith("komodo:")) {
+    const [, serverId, deploymentName] = ref.split(":");
+    return { type: "komodo", serverId: serverId!, deploymentName: deploymentName! };
   }
 
   // Legacy bare container ID
@@ -75,6 +89,10 @@ export async function provisionAgent(config: AgentConfig): Promise<string> {
         `Proxmox provisioning not yet implemented (node: ${config.platform.node}, type: ${config.platform.vmType})`
       );
     }
+
+    case "komodo": {
+      return createKomodoContainer(config, config.platform.serverId);
+    }
   }
 }
 
@@ -83,6 +101,7 @@ export async function stopAgent(platformRef: string): Promise<void> {
   if (parsed.type === "pending") return;
   if (parsed.type === "docker") return stopContainer(parsed.containerId);
   if (parsed.type === "portainer") return stopPortainerContainer(parsed.endpointId, parsed.containerId);
+  if (parsed.type === "komodo") return stopKomodoContainer(parsed.serverId, parsed.deploymentName);
   if (parsed.type === "proxmox") {
     throw new Error(`Proxmox stop not yet implemented`);
   }
@@ -93,6 +112,7 @@ export async function removeAgent(platformRef: string): Promise<void> {
   if (parsed.type === "pending") return;
   if (parsed.type === "docker") return removeContainer(parsed.containerId);
   if (parsed.type === "portainer") return removePortainerContainer(parsed.endpointId, parsed.containerId);
+  if (parsed.type === "komodo") return removeKomodoContainer(parsed.serverId, parsed.deploymentName);
   if (parsed.type === "proxmox") {
     throw new Error(`Proxmox remove not yet implemented`);
   }
@@ -108,6 +128,7 @@ export async function getAgentRunning(platformRef: string): Promise<boolean | nu
   if (parsed.type === "pending") return null;
   if (parsed.type === "docker") return getContainerRunning(parsed.containerId);
   if (parsed.type === "portainer") return getPortainerContainerRunning(parsed.endpointId, parsed.containerId);
+  if (parsed.type === "komodo") return getKomodoContainerRunning(parsed.serverId, parsed.deploymentName);
   return null; // proxmox — not yet implemented
 }
 
@@ -127,6 +148,13 @@ export async function getAgentLogs(
   if (parsed.type === "portainer") {
     try {
       return await getPortainerContainerLogs(parsed.endpointId, parsed.containerId);
+    } catch {
+      return fallback;
+    }
+  }
+  if (parsed.type === "komodo") {
+    try {
+      return await getKomodoContainerLogs(parsed.serverId, parsed.deploymentName);
     } catch {
       return fallback;
     }

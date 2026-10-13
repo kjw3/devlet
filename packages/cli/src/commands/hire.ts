@@ -24,9 +24,21 @@ export async function hireCommand() {
       { value: "docker", label: "Docker (local)" },
       { value: "portainer", label: "Portainer" },
       { value: "proxmox", label: "Proxmox" },
+      { value: "komodo", label: "Komodo" },
     ],
   });
   if (p.isCancel(platform)) { p.cancel("cancelled"); return; }
+
+  let komodoServerId = "";
+  if (platform === "komodo") {
+    const srv = await p.text({
+      message: "Komodo server (name or id)",
+      placeholder: "e.g. gpu1",
+      validate: (v) => (v.trim() ? undefined : "required"),
+    });
+    if (p.isCancel(srv)) { p.cancel("cancelled"); return; }
+    komodoServerId = srv as string;
+  }
 
   const name = await p.text({
     message: "Agent name",
@@ -78,7 +90,9 @@ export async function hireCommand() {
           ? { type: "docker" as const }
           : platform === "portainer"
           ? { type: "portainer" as const, endpointId: 1 }
-          : { type: "proxmox" as const, node: "pve-01", vmType: "lxc" as const },
+          : platform === "proxmox"
+          ? { type: "proxmox" as const, node: "pve-01", vmType: "lxc" as const }
+          : { type: "komodo" as const, serverId: komodoServerId },
       resources: DEFAULT_RESOURCE_LIMITS,
       env: {},
       persistent: true,

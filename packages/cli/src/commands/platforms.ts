@@ -1,6 +1,6 @@
 import { trpc } from "../client.js";
 
-type ExcludablePlatform = "portainer" | "proxmox";
+export type ExcludablePlatform = "portainer" | "proxmox" | "komodo";
 
 function printDocker() {
   return trpc.platforms.docker.status.query().then((status) => {
@@ -53,11 +53,31 @@ function printProxmox() {
   });
 }
 
+function printKomodo() {
+  return trpc.platforms.komodo.status.query().then((status) => {
+    console.log("\nKomodo");
+    console.log("─".repeat(48));
+    if (!status.connected) {
+      console.log(status.error ?? "disconnected");
+      return;
+    }
+    for (const server of [...status.servers].sort((a, b) => a.name.localeCompare(b.name))) {
+      const suffix = server.excluded ? " [excluded]" : "";
+      const arch = server.architecture && server.architecture !== "unknown"
+        ? ` [${server.architecture}]`
+        : "";
+      const gpu = server.gpuAvailable ? " [gpu]" : "";
+      console.log(`${server.name}${arch}${gpu}${suffix}`);
+    }
+  });
+}
+
 export async function platformsStatusCommand() {
   try {
     await printDocker();
     await printPortainer();
     await printProxmox();
+    await printKomodo();
     console.log();
   } catch {
     console.error("error: cannot connect to devlet server (is it running, and is DEVLET_AUTH_TOKEN set?)");
@@ -73,8 +93,10 @@ export async function platformsSetExcludedCommand(
   try {
     if (platform === "portainer") {
       await trpc.platforms.portainer.setExcluded.mutate({ target, excluded });
-    } else {
+    } else if (platform === "proxmox") {
       await trpc.platforms.proxmox.setExcluded.mutate({ target, excluded });
+    } else {
+      await trpc.platforms.komodo.setExcluded.mutate({ target, excluded });
     }
   } catch {
     console.error("error: failed to update platform exclusion (is DEVLET_AUTH_TOKEN set?)");

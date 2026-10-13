@@ -55,14 +55,14 @@ case "$AGENT_TYPE" in
       openai)
         CODEX_API_KEY="${OPENAI_API_KEY:-}"; CODEX_BASE_URL=""; CODEX_MODEL="${MODEL:-${DEVLET_DEFAULT_MODEL:-o4-mini}}";;
       litellm)
-        CODEX_API_KEY="${LITELLM_API_KEY:-}"; CODEX_BASE_URL="${LITELLM_BASE_URL}/v1"; CODEX_MODEL="${MODEL:-${DEVLET_DEFAULT_MODEL:-}}";;
+        CODEX_API_KEY="${LITELLM_API_KEY:-}"; CODEX_BASE_URL="${LITELLM_BASE_URL}/v1"; CODEX_MODEL="${MODEL:-${DEVLET_DEFAULT_MODEL:-$(_dci_litellm_model codex)}}";;
       nvidia)
         CODEX_API_KEY="${NVIDIA_API_KEY:-}"; CODEX_BASE_URL="https://integrate.api.nvidia.com/v1"; CODEX_MODEL="${MODEL:-${DEVLET_DEFAULT_MODEL:-nvidia/llama-3.1-nemotron-ultra-253b-v1}}";;
       *)
         if [ -n "$OPENAI_API_KEY" ]; then
           CODEX_API_KEY="$OPENAI_API_KEY"; CODEX_BASE_URL=""; CODEX_MODEL="${MODEL:-${DEVLET_DEFAULT_MODEL:-o4-mini}}"
         elif [ -n "$LITELLM_BASE_URL" ] && [ -n "$LITELLM_API_KEY" ]; then
-          CODEX_API_KEY="$LITELLM_API_KEY"; CODEX_BASE_URL="${LITELLM_BASE_URL}/v1"; CODEX_MODEL="${MODEL:-${DEVLET_DEFAULT_MODEL:-}}"
+          CODEX_API_KEY="$LITELLM_API_KEY"; CODEX_BASE_URL="${LITELLM_BASE_URL}/v1"; CODEX_MODEL="${MODEL:-${DEVLET_DEFAULT_MODEL:-$(_dci_litellm_model codex)}}"
         elif [ -n "$NVIDIA_API_KEY" ]; then
           CODEX_API_KEY="$NVIDIA_API_KEY"; CODEX_BASE_URL="https://integrate.api.nvidia.com/v1"; CODEX_MODEL="${MODEL:-${DEVLET_DEFAULT_MODEL:-nvidia/llama-3.1-nemotron-ultra-253b-v1}}"
         fi;;
@@ -85,7 +85,7 @@ case "$AGENT_TYPE" in
     elif [ -n "$NVIDIA_API_KEY" ]; then RESOLVED_PROVIDER="nvidia"
     else RESOLVED_PROVIDER="anthropic"; fi
     case "$RESOLVED_PROVIDER" in
-      litellm)  OPENCODE_MODEL="litellm/${MODEL:-${DEVLET_DEFAULT_MODEL:-gpt-4o}}";;
+      litellm)  OPENCODE_MODEL="litellm/${MODEL:-${DEVLET_DEFAULT_MODEL:-$(_dci_litellm_model opencode)}}"; [ "$OPENCODE_MODEL" = "litellm/" ] && OPENCODE_MODEL="litellm/gpt-4o";;
       openrouter) OPENCODE_MODEL="openrouter/${MODEL:-anthropic/claude-sonnet-4-6}";;
       anthropic)  OPENCODE_MODEL="anthropic/${MODEL:-claude-sonnet-4-5}";;
       openai)     OPENCODE_MODEL="openai/${MODEL:-gpt-4o}";;

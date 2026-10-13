@@ -3,11 +3,13 @@ import {
   scheduleAgent,
   HireAgentInputSchema,
   UpdateMissionInputSchema,
+  RecoverAgentInputSchema,
   SetDefaultInputSchema,
   SetAgentTypeConfigInputSchema,
   AgentTypeSchema,
   SetPortainerExclusionInputSchema,
   SetProxmoxExclusionInputSchema,
+  SetKomodoExclusionInputSchema,
   AGENT_RESOURCE_MINS,
   type AgentConfig,
   type AgentState,
@@ -31,6 +33,7 @@ import {
 } from "../platforms/portainer-deploy.js";
 import { probePortainer } from "../platforms/portainer.js";
 import { probeProxmox } from "../platforms/proxmox.js";
+import { probeKomodo } from "../platforms/komodo.js";
 import { provisionAgent, stopAgent, removeAgent, getAgentLogs } from "../platforms/dispatch.js";
 import {
   listAgentStates,
@@ -63,6 +66,7 @@ import {
   loadEffectivePlatformExclusions,
   setPortainerExcluded,
   setProxmoxExcluded,
+  setKomodoExcluded,
 } from "../platforms/exclusions.js";
 
 const t = initTRPC.context<{ authHeader?: string }>().create();
@@ -206,12 +210,14 @@ async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
 
 
 function normalizePlatformTarget(platform: {
-  type: "docker" | "portainer" | "proxmox";
+  type: "docker" | "portainer" | "proxmox" | "komodo";
   socketPath?: string;
   endpointId?: number;
   stackName?: string;
   node?: string;
   vmType?: "lxc" | "qemu";
+  serverId?: string;
+  serverName?: string;
 }): PlatformTarget {
   if (platform.type === "docker") {
     return {
@@ -225,6 +231,14 @@ function normalizePlatformTarget(platform: {
       type: "portainer",
       endpointId: platform.endpointId as number,
       ...(platform.stackName !== undefined ? { stackName: platform.stackName } : {}),
+    };
+  }
+
+  if (platform.type === "komodo") {
+    return {
+      type: "komodo",
+      serverId: platform.serverId as string,
+      ...(platform.serverName !== undefined ? { serverName: platform.serverName } : {}),
     };
   }
 
@@ -397,6 +411,57 @@ async function refreshAgentAccessPorts(config: AgentConfig): Promise<void> {
   await ensureAgentAccessEnv(config);
 }
 
+async function chooseRecoveryPlatform(
+  state: AgentState,
+  platformOverride?: PlatformTarget
+): Promise<PlatformTarget> {
+  if (platformOverride) return normalizePlatformTarget(platformOverride);
+
+  const [dockerStatus, portainerStatus, proxmoxStatus, komodoStatus] = await Promise.all([
+    probeDocker(),
+    probePortainer(),
+    probeProxmox(),
+    probeKomodo(),
+  ]);
+
+  const portainer = portainerStatus.connected
+    ? {
+        ...portainerStatus,
+        endpoints: portainerStatus.endpoints.map((endpoint) => ({
+          ...endpoint,
+          ...(state.config.platform.type === "portainer" &&
+          endpoint.id === state.config.platform.endpointId
+            ? { excluded: true }
+            : {}),
+        })),
+      }
+    : null;
+
+  const decision = scheduleAgent(
+    {
+      type: state.config.type,
+      resources: state.config.resources,
+      persistent: state.config.persistent,
+      ...(state.config.gpu ? { gpu: state.config.gpu } : {}),
+    },
+    {
+      docker: dockerStatus,
+      portainer,
+      proxmox: proxmoxStatus.connected ? proxmoxStatus : null,
+      komodo: komodoStatus.connected ? komodoStatus : null,
+    }
+  );
+
+  if (decision.outcome !== "scheduled" || !decision.placement) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: decision.summary,
+    });
+  }
+
+  return normalizePlatformTarget(decision.placement);
+}
+
 export const appRouter = t.router({
   agents: t.router({
     list: authProcedure.query(async () => Promise.all((await listAgentStates()).map(sanitizeAgentState))),
@@ -454,15 +519,17 @@ export const appRouter = t.router({
           });
         }
 
-        const [dockerStatus, portainerStatus, proxmoxStatus] = await Promise.all([
+        const [dockerStatus, portainerStatus, proxmoxStatus, komodoStatus] = await Promise.all([
           probeDocker(),
           probePortainer(),
           probeProxmox(),
+          probeKomodo(),
         ]);
         const schedulerContext = {
           docker: dockerStatus,
           portainer: portainerStatus.connected ? portainerStatus : null,
           proxmox: proxmoxStatus.connected ? proxmoxStatus : null,
+          komodo: komodoStatus.connected ? komodoStatus : null,
         };
 
         const platform =
@@ -601,16 +668,48 @@ export const appRouter = t.router({
           `devlet-${state.config.id}`
         ).catch(() => {});
       }
+      const wasTerminated = state.status === "terminated";
       await refreshAgentAccessPorts(state.config);
       const platformRef = await provisionAgent(state.config);
       state.platformRef = platformRef;
       state.status = "running";
       delete state.error;
       state.config.lastActiveAt = new Date().toISOString();
-      state.logs.push(`${state.status === "terminated" ? "Start" : "Restart"} requested — reprovisioning agent`);
+      state.logs.push(`${wasTerminated ? "Start" : "Restart"} requested — reprovisioning agent`);
       await saveAgentState(state);
       return sanitizeAgentState(state);
     }),
+
+    recover: authProcedure
+      .input(RecoverAgentInputSchema)
+      .mutation(async ({ input }) => {
+        const state = await loadAgentState(input.agentId);
+        const oldPlatform = state.config.platform;
+        const oldPlatformRef = state.platformRef;
+
+        await stopAgent(state.platformRef).catch(() => {});
+        await removeAgent(state.platformRef).catch(() => {});
+        if (state.config.platform.type === "portainer") {
+          await removePortainerContainerByName(
+            state.config.platform.endpointId,
+            `devlet-${state.config.id}`
+          ).catch(() => {});
+        }
+
+        state.config.platform = await chooseRecoveryPlatform(state, input.platformOverride);
+        await refreshAgentAccessPorts(state.config);
+
+        const platformRef = await provisionAgent(state.config);
+        state.platformRef = platformRef;
+        state.status = "running";
+        delete state.error;
+        state.config.lastActiveAt = new Date().toISOString();
+        state.logs.push(
+          `Recovery requested — moved from ${oldPlatform.type}:${oldPlatformRef} to ${state.config.platform.type}:${platformRef}`
+        );
+        await saveAgentState(state);
+        return sanitizeAgentState(state);
+      }),
 
     logs: authProcedure.input(z.string()).query(async ({ input }) => {
       const state = await loadAgentState(input);
@@ -644,6 +743,14 @@ export const appRouter = t.router({
       setExcluded: authProcedure
         .input(SetProxmoxExclusionInputSchema)
         .mutation(({ input }) => setProxmoxExcluded(input.target, input.excluded)),
+    }),
+
+    komodo: t.router({
+      status: authProcedure.query(() => probeKomodo()),
+      exclusions: authProcedure.query(() => loadEffectivePlatformExclusions()),
+      setExcluded: authProcedure
+        .input(SetKomodoExclusionInputSchema)
+        .mutation(({ input }) => setKomodoExcluded(input.target, input.excluded)),
     }),
   }),
 

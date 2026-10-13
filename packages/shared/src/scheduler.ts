@@ -12,7 +12,7 @@
  *   2. Soft scoring — 0–100 points across affinity, persistence, resource fit, load.
  *
  * The highest-scoring available platform wins. Ties are broken by platform
- * preference order: docker > portainer > proxmox.
+ * preference order: docker > portainer > proxmox > komodo.
  */
 
 import type { AgentType } from "./types/agent.js";
@@ -21,6 +21,7 @@ import type {
   PlatformArchitecture,
   PortainerStatus,
   ProxmoxStatus,
+  KomodoStatus,
   PlatformTarget,
 } from "./types/platform.js";
 import type {
@@ -70,6 +71,19 @@ const PROXMOX_AFFINITY: Record<AgentType, number> = {
   "gemini": 10,
   "nanoclaw": 10,
   "hermes": 5,        // Proxmox is too heavy for a lightweight dispatcher
+};
+
+const KOMODO_AFFINITY: Record<AgentType, number> = {
+  "openclaw": 25,     // Multi-instance gateway — Komodo deployments are ideal
+  "moltis": 25,       // Persistent gateway service — named deployment lifecycle
+  "hermes": 20,       // Managed orchestration suits Hermes pipelines
+  "claude-code": 15,
+  "codex": 15,
+  "opencode": 15,
+  "pi": 15,
+  "gemini": 15,
+  "nanoclaw": 0,      // Hard-gated: spawns its own containers — Proxmox only
+  "nemoclaw": 20,     // Container GPU passthrough on Komodo GPU servers
 };
 
 function architectureScore(arch: PlatformArchitecture | undefined): number {
@@ -407,6 +421,118 @@ function scoreProxmox(
   return { platform, score: Math.max(0, score), available: true, reasons };
 }
 
+function scoreKomodo(
+  reqs: PlacementRequirements,
+  status: KomodoStatus
+): PlatformScore {
+  const onlineServers = status.connected
+    ? status.servers.filter((s) => s.state === "ok" && !s.excluded)
+    : [];
+  const gpuServers = onlineServers.filter((s) => s.gpuAvailable);
+
+  // Best-fit server: architecture first, then most free memory
+  const candidateServers = reqs.gpu?.required ? gpuServers : onlineServers;
+  const targetServer = candidateServers
+    .slice()
+    .sort(
+      (a, b) =>
+        architectureScore(b.architecture) - architectureScore(a.architecture) ||
+        (b.totalMemoryGb ?? 0) - (b.usedMemoryGb ?? 0) - ((a.totalMemoryGb ?? 0) - (a.usedMemoryGb ?? 0))
+    )[0];
+
+  const platform: PlatformTarget = {
+    type: "komodo",
+    serverId: targetServer?.id ?? "",
+    ...(targetServer?.name ? { serverName: targetServer.name } : {}),
+  };
+
+  if (!status.connected) {
+    return {
+      platform,
+      score: 0,
+      available: false,
+      reasons: [],
+      disqualifyReason: "Komodo core not reachable",
+    };
+  }
+
+  if (onlineServers.length === 0) {
+    return {
+      platform,
+      score: 0,
+      available: false,
+      reasons: [],
+      disqualifyReason: "No Komodo servers online",
+    };
+  }
+
+  if (reqs.gpu?.required && gpuServers.length === 0) {
+    return {
+      platform,
+      score: 0,
+      available: false,
+      reasons: [],
+      disqualifyReason: "GPU required but no GPU-capable Komodo servers available",
+    };
+  }
+
+  if (reqs.type === "nanoclaw") {
+    return {
+      platform,
+      score: 0,
+      available: false,
+      reasons: [],
+      disqualifyReason: "nanoclaw spawns its own containers — must run on Proxmox (VM/LXC), not inside a Komodo-managed Docker host",
+    };
+  }
+
+  let score = 0;
+  const reasons: string[] = [];
+
+  // GPU fit (30 pts)
+  if (reqs.gpu?.required && gpuServers.length > 0) {
+    score += 30;
+    const g = gpuServers[0]!;
+    reasons.push(`GPU available on server "${g.name}"${g.gpuModel ? ` (${g.gpuModel})` : ""}`);
+  }
+
+  // Type affinity (0–25 pts)
+  const affinity = KOMODO_AFFINITY[reqs.type] ?? 15;
+  score += affinity;
+  if (affinity >= 25) {
+    reasons.push(`${reqs.type} is well-suited for Komodo-managed deployments`);
+  }
+
+  // Server count bonus — more servers = more scheduling flexibility
+  score += Math.min(8, onlineServers.length * 2);
+
+  // Memory headroom (0–12 pts) — most free memory wins
+  if (targetServer && targetServer.totalMemoryGb) {
+    const freeGb = targetServer.totalMemoryGb - (targetServer.usedMemoryGb ?? 0);
+    const freeRatio = freeGb / targetServer.totalMemoryGb;
+    score += Math.round(Math.max(0, Math.min(1, freeRatio)) * 12);
+    if (freeRatio > 0.5) {
+      reasons.push(`${Math.round(freeGb)}GB free on "${targetServer.name}"`);
+    } else if (freeRatio < 0.2) {
+      reasons.push(`"${targetServer.name}" is under memory pressure`);
+    }
+  }
+
+  score += architectureScore(targetServer?.architecture);
+  const archReason = architectureReason(targetServer?.architecture);
+  if (archReason && targetServer) {
+    reasons.push(`${archReason} on "${targetServer.name}"`);
+  }
+
+  // Persistence fit (0–20 pts) — Komodo deployments are named, versioned resources
+  if (reqs.persistent) {
+    score += 20;
+    reasons.push("persistent — Komodo deployments are named resources with lifecycle management");
+  }
+
+  return { platform, score: Math.max(0, score), available: true, reasons };
+}
+
 // ─── Main entry point ─────────────────────────────────────────────────────────
 
 /**
@@ -424,6 +550,7 @@ export function scheduleAgent(
   if (ctx.docker) scores.push(scoreDocker(reqs, ctx.docker));
   if (ctx.portainer) scores.push(scorePortainer(reqs, ctx.portainer));
   if (ctx.proxmox) scores.push(scoreProxmox(reqs, ctx.proxmox));
+  if (ctx.komodo) scores.push(scoreKomodo(reqs, ctx.komodo));
 
   if (scores.length === 0) {
     return {
@@ -457,7 +584,9 @@ export function scheduleAgent(
       ? "Docker"
       : winner.platform.type === "portainer"
       ? `Portainer (${(winner.platform as { endpointName?: string; endpointId: number }).endpointName ?? `endpoint ${(winner.platform as { endpointId: number }).endpointId}`})`
-      : `Proxmox (${(winner.platform as { node: string; vmType: string }).node} / ${(winner.platform as { vmType: string }).vmType})`;
+      : winner.platform.type === "proxmox"
+      ? `Proxmox (${(winner.platform as { node: string; vmType: string }).node} / ${(winner.platform as { vmType: string }).vmType})`
+      : `Komodo (${(winner.platform as { serverName?: string; serverId: string }).serverName ?? (winner.platform as { serverId: string }).serverId})`;
 
   return {
     outcome: "scheduled",

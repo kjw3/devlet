@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import type { AgentConfig, AgentState, PlatformTarget } from "@devlet/shared";
 import { config } from "./config.js";
 import { probePortainer } from "./platforms/portainer.js";
+import { probeKomodo } from "./platforms/komodo.js";
 import { loadAgentState } from "./agents/state.js";
 
 export type AgentAccessSurface = "terminal" | "openclaw" | "moltis";
@@ -39,9 +40,24 @@ export async function getPortainerEndpointHost(endpointId: number): Promise<stri
   }
 }
 
+export async function getKomodoServerHost(serverId: string): Promise<string> {
+  try {
+    const status = await probeKomodo();
+    const server = status.servers.find(
+      (item) => item.id === serverId || item.name === serverId
+    );
+    return server?.host || "localhost";
+  } catch {
+    return "localhost";
+  }
+}
+
 export async function resolveAgentAccessHost(platform: PlatformTarget): Promise<string> {
   if (platform.type === "portainer") {
     return getPortainerEndpointHost(platform.endpointId);
+  }
+  if (platform.type === "komodo") {
+    return getKomodoServerHost(platform.serverId);
   }
   return "localhost";
 }
@@ -49,6 +65,9 @@ export async function resolveAgentAccessHost(platform: PlatformTarget): Promise<
 async function resolveAgentProxyTargetHost(platform: PlatformTarget): Promise<string> {
   if (platform.type === "portainer") {
     return getPortainerEndpointHost(platform.endpointId);
+  }
+  if (platform.type === "komodo") {
+    return getKomodoServerHost(platform.serverId);
   }
   if (platform.type === "docker") {
     return config.dockerProxyHost;

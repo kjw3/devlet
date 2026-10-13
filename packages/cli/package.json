@@ -12,15 +12,15 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@devlet/shared": "workspace:*",
-    "@trpc/client": "^11.1.0",
     "@clack/prompts": "^0.9.1",
+    "@devlet/shared": "workspace:*",
+    "@trpc/client": "^11.19.0",
     "commander": "^12.1.0",
-    "zod": "^3.24.1"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/node": "^22.10.5",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.3"
+    "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
   }
 }

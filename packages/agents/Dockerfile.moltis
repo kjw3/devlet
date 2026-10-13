@@ -19,7 +19,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Pull the official binary + WASM assets
-ARG MOLTIS_UPSTREAM_IMAGE=ghcr.io/moltis-org/moltis:20260413.01
+ARG MOLTIS_UPSTREAM_IMAGE=ghcr.io/moltis-org/moltis:20260913.02
 ARG BASE_AGENT_IMAGE=devlet/agent-base:latest
 FROM ${MOLTIS_UPSTREAM_IMAGE} AS moltis-upstream
 

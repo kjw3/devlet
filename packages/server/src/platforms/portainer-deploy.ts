@@ -162,6 +162,17 @@ export async function createPortainerContainer(
         Image: image,
         Env: await buildContainerEnv(agentConfig),
         ExposedPorts,
+        ...(agentConfig.type === "hermes"
+          ? {
+              Healthcheck: {
+                Test: ["CMD-SHELL", "pgrep -f '^/opt/hermes/.venv/bin/python.*hermes|hermes' >/dev/null"],
+                Interval: 30_000_000_000,
+                Timeout: 5_000_000_000,
+                Retries: 3,
+                StartPeriod: 20_000_000_000,
+              },
+            }
+          : {}),
         Labels: {
           "devlet.agent.id": agentConfig.id,
           "devlet.agent.type": agentConfig.type,
@@ -172,6 +183,9 @@ export async function createPortainerContainer(
           NanoCpus: Math.round(agentConfig.resources.cpus * 1e9),
           Memory: agentConfig.resources.memoryMb * 1024 * 1024,
           PortBindings,
+          RestartPolicy: {
+            Name: agentConfig.persistent ? "unless-stopped" : "no",
+          },
         },
       }),
     }

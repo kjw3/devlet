@@ -7,7 +7,7 @@ import { LogViewer } from "../components/LogViewer.js";
 import { ConfirmModal } from "../components/ConfirmModal.js";
 import type { AgentState } from "@devlet/shared";
 
-const PLATFORM_LABELS = { docker: "Docker", portainer: "Portainer", proxmox: "Proxmox" };
+const PLATFORM_LABELS = { docker: "Docker", portainer: "Portainer", proxmox: "Proxmox", komodo: "Komodo" };
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -326,6 +326,9 @@ export function AgentDetail() {
   const restartMutation = trpc.agents.restart.useMutation({
     onSuccess: () => void utils.agents.get.invalidate(id),
   });
+  const recoverMutation = trpc.agents.recover.useMutation({
+    onSuccess: () => void utils.agents.get.invalidate(id),
+  });
 
   if (isLoading) {
     return (
@@ -377,6 +380,15 @@ export function AgentDetail() {
           <StatusBadge status={status} />
         </div>
         <div className="flex gap-2">
+          {status === "error" && config.persistent && (
+            <button
+              className="btn-ghost"
+              disabled={recoverMutation.isPending}
+              onClick={() => recoverMutation.mutate({ agentId: config.id })}
+            >
+              {recoverMutation.isPending ? "recovering..." : "recover"}
+            </button>
+          )}
           {status !== "terminated" && (
             <>
               <button

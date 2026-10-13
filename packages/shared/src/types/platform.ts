@@ -1,10 +1,11 @@
-export type PlatformType = "docker" | "portainer" | "proxmox";
+export type PlatformType = "docker" | "portainer" | "proxmox" | "komodo";
 export type PlatformArchitecture = "amd64" | "arm64" | "unknown";
 
 export type PlatformTarget =
   | { type: "docker"; socketPath?: string }
   | { type: "portainer"; endpointId: number; endpointName?: string; stackName?: string }
-  | { type: "proxmox"; node: string; vmType: "lxc" | "qemu" };
+  | { type: "proxmox"; node: string; vmType: "lxc" | "qemu" }
+  | { type: "komodo"; serverId: string; serverName?: string };
 
 // Status shapes returned by platform health checks
 export interface DockerStatus {
@@ -72,5 +73,36 @@ export interface ProxmoxStatus {
   connected: boolean;
   version?: string;
   nodes: ProxmoxNode[];
+  error?: string;
+}
+
+/** Normalized Komodo server lifecycle state. */
+export type KomodoServerState = "ok" | "not-ok" | "disabled" | "unknown";
+
+export interface KomodoServer {
+  id: string;
+  name: string;
+  state: KomodoServerState;
+  /** Whether this server has GPU support (detected via nvidia-smi) */
+  gpuAvailable?: boolean;
+  /** Detected GPU model, e.g. "NVIDIA GeForce RTX 4080" */
+  gpuModel?: string;
+  /** Excluded from scheduling by configuration */
+  excluded?: boolean;
+  /** Reachable hostname/IP of this server (for proxying agent UI/SSH) */
+  host?: string;
+  architecture?: PlatformArchitecture;
+  /** Total host memory in GB from the latest stats snapshot */
+  totalMemoryGb?: number;
+  /** Used host memory in GB from the latest stats snapshot */
+  usedMemoryGb?: number;
+  /** Logical core count */
+  coreCount?: number;
+}
+
+export interface KomodoStatus {
+  connected: boolean;
+  version?: string;
+  servers: KomodoServer[];
   error?: string;
 }

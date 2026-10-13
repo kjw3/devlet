@@ -12,12 +12,14 @@ function getStatePath(id: string): string {
 }
 
 function normalizePlatformTarget(platform: {
-  type: "docker" | "portainer" | "proxmox";
+  type: "docker" | "portainer" | "proxmox" | "komodo";
   socketPath?: string;
   endpointId?: number;
   stackName?: string;
   node?: string;
   vmType?: "lxc" | "qemu";
+  serverId?: string;
+  serverName?: string;
 }): PlatformTarget {
   if (platform.type === "docker") {
     return {
@@ -31,6 +33,14 @@ function normalizePlatformTarget(platform: {
       type: "portainer",
       endpointId: platform.endpointId as number,
       ...(platform.stackName !== undefined ? { stackName: platform.stackName } : {}),
+    };
+  }
+
+  if (platform.type === "komodo") {
+    return {
+      type: "komodo",
+      serverId: platform.serverId as string,
+      ...(platform.serverName !== undefined ? { serverName: platform.serverName } : {}),
     };
   }
 
@@ -129,12 +139,14 @@ function normalizeAgentConfig(config: {
     timeout?: number;
   };
   platform: {
-    type: "docker" | "portainer" | "proxmox";
+    type: "docker" | "portainer" | "proxmox" | "komodo";
     socketPath?: string;
     endpointId?: number;
     stackName?: string;
     node?: string;
     vmType?: "lxc" | "qemu";
+    serverId?: string;
+    serverName?: string;
   };
   resources: {
     cpus: number;

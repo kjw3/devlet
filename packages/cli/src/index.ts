@@ -5,8 +5,10 @@ import { hireCommand } from "./commands/hire.js";
 import { fireCommand } from "./commands/fire.js";
 import { statusCommand } from "./commands/status.js";
 import { logsCommand } from "./commands/logs.js";
+import { recoverCommand } from "./commands/recover.js";
 import { modelsListCommand, modelsSetDefaultCommand } from "./commands/models.js";
 import { platformsSetExcludedCommand, platformsStatusCommand } from "./commands/platforms.js";
+import type { ExcludablePlatform } from "./commands/platforms.js";
 import { sshCommand } from "./commands/ssh.js";
 
 const program = new Command();
@@ -44,6 +46,11 @@ program
   .action(logsCommand);
 
 program
+  .command("recover <agent-id>")
+  .description("Recover a persistent agent onto an available platform")
+  .action(recoverCommand);
+
+program
   .command("ssh <agent-id>")
   .description("Print the SSH command for an agent")
   .action(sshCommand);
@@ -74,14 +81,14 @@ platformsCmd
 platformsCmd
   .command("exclude <platform> <target>")
   .description("Exclude a Portainer endpoint or Proxmox node from scheduling")
-  .action((platform: "portainer" | "proxmox", target: string) =>
+  .action((platform: ExcludablePlatform, target: string) =>
     platformsSetExcludedCommand(platform, target, true)
   );
 
 platformsCmd
   .command("include <platform> <target>")
   .description("Re-include a Portainer endpoint or Proxmox node in scheduling")
-  .action((platform: "portainer" | "proxmox", target: string) =>
+  .action((platform: ExcludablePlatform, target: string) =>
     platformsSetExcludedCommand(platform, target, false)
   );
 

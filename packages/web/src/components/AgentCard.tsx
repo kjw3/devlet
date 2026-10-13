@@ -8,12 +8,14 @@ interface AgentCardProps {
   onFire?: (id: string) => void;
   onDelete?: (id: string) => void;
   onStart?: (id: string) => void;
+  onRecover?: (id: string) => void;
 }
 
 const PLATFORM_LABELS = {
   docker: "Docker",
   portainer: "Portainer",
   proxmox: "Proxmox",
+  komodo: "Komodo",
 } as const;
 
 function progressPct(agent: AgentState): number {
@@ -22,7 +24,7 @@ function progressPct(agent: AgentState): number {
   return Math.round((agent.missionProgress.completed.length / total) * 100);
 }
 
-export function AgentCard({ agent, onFire, onDelete, onStart }: AgentCardProps) {
+export function AgentCard({ agent, onFire, onDelete, onStart, onRecover }: AgentCardProps) {
   const navigate = useNavigate();
   const pct = progressPct(agent);
   const isActive = agent.status === "running" || agent.status === "bootstrapping";
@@ -92,6 +94,17 @@ export function AgentCard({ agent, onFire, onDelete, onStart }: AgentCardProps) 
       <div className="flex items-center justify-between pt-1 border-t border-surface-border">
         <StatusBadge status={agent.status} />
         <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+          {agent.status === "error" && agent.config.persistent && (
+            <button
+              className="btn-ghost text-[10px]"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRecover?.(agent.config.id);
+              }}
+            >
+              recover
+            </button>
+          )}
           {agent.status !== "terminated" && (
             <button
               className="btn-danger text-[10px]"

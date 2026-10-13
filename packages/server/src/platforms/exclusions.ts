@@ -24,7 +24,7 @@ export async function loadStoredPlatformExclusions(): Promise<PlatformExclusions
         ? String((error as { code: unknown }).code)
         : null;
     if (code === "ENOENT") {
-      return { portainerEndpoints: [], proxmoxNodes: [] };
+      return { portainerEndpoints: [], proxmoxNodes: [], komodoServers: [] };
     }
     throw error;
   }
@@ -37,6 +37,7 @@ export async function saveStoredPlatformExclusions(exclusions: PlatformExclusion
     yaml.dump({
       portainerEndpoints: sortUnique(exclusions.portainerEndpoints),
       proxmoxNodes: sortUnique(exclusions.proxmoxNodes),
+      komodoServers: sortUnique(exclusions.komodoServers),
     }),
     "utf8"
   );
@@ -52,6 +53,10 @@ export async function loadEffectivePlatformExclusions(): Promise<PlatformExclusi
     proxmoxNodes: sortUnique([
       ...config.proxmox.excludedNodes,
       ...stored.proxmoxNodes,
+    ]),
+    komodoServers: sortUnique([
+      ...config.komodo.excludedServers,
+      ...stored.komodoServers,
     ]),
   };
 }
@@ -85,6 +90,23 @@ export async function setProxmoxExcluded(target: string, excluded: boolean): Pro
   const updated: PlatformExclusions = {
     ...stored,
     proxmoxNodes: sortUnique(next),
+  };
+  await saveStoredPlatformExclusions(updated);
+  return loadEffectivePlatformExclusions();
+}
+
+export async function setKomodoExcluded(target: string, excluded: boolean): Promise<PlatformExclusions> {
+  const stored = await loadStoredPlatformExclusions();
+  const next = new Set(stored.komodoServers);
+  if (excluded) {
+    next.add(target);
+  } else {
+    next.delete(target);
+  }
+
+  const updated: PlatformExclusions = {
+    ...stored,
+    komodoServers: sortUnique(next),
   };
   await saveStoredPlatformExclusions(updated);
   return loadEffectivePlatformExclusions();

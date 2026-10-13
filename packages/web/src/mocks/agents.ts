@@ -148,4 +148,44 @@ export const MOCK_AGENTS: AgentState[] = [
     ],
     error: "CUDA OOM on device 0 — reduce batch size or free GPU memory",
   },
+  {
+    config: {
+      id: "agent-b2c8",
+      name: "GPU Inference",
+      type: "nemoclaw",
+      role: "LLM inference — serve embeddings on GPU host",
+      mission: {
+        description: "Serve embedding model and process query batches",
+        steps: [
+          { action: "run_command", params: { cmd: "load model" } },
+          { action: "serve", params: { port: 8080 } },
+        ],
+        onComplete: "idle",
+      },
+      platform: {
+        type: "komodo",
+        serverId: "srv-02",
+        serverName: "gpu1",
+      },
+      resources: { cpus: 4, memoryMb: 8192 },
+      gpu: { required: true, memoryMb: 8192, passthroughMode: "container" },
+      env: {},
+      persistent: true,
+      createdAt: "2026-04-11T09:00:00Z",
+      lastActiveAt: "2026-04-11T12:30:00Z",
+    },
+    status: "running",
+    platformRef: "komodo:srv-02:devlet-agent-b2c8",
+    missionProgress: {
+      currentStep: 1,
+      completed: [0],
+      startedAt: "2026-04-11T09:00:00Z",
+    },
+    logs: [
+      "[09:00:00] Provisioning deployment on Komodo server gpu1...",
+      "[09:00:14] Deployment created and deployed",
+      "[09:00:20] GPU passthrough active (RTX 4080)",
+      "[09:00:35] Model loaded, serving on :8080",
+    ],
+  },
 ];

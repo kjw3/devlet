@@ -173,11 +173,11 @@ fi
 if [ -n "$MISSION" ]; then
   hermes chat -q "$MISSION"
   if [ "$PERSISTENT" = "true" ]; then
-    echo "[devlet] mission complete — idling (persistent=true)"
-    exec tail -f /dev/null
+    echo "[devlet] mission complete — starting Hermes (persistent=true)"
+    exec hermes
   fi
 elif [ "$PERSISTENT" = "true" ]; then
-  exec tail -f /dev/null
+  exec hermes
 else
   exec hermes
 fi

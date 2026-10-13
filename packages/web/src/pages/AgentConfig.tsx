@@ -5,11 +5,11 @@ import type { AgentType, ProviderName, ProviderInfo, AgentTypeConfig } from "@de
 
 // Agent types shown on this page and the providers each supports
 const CONFIGURABLE_AGENTS: { type: AgentType; providers: ProviderName[] }[] = [
-  { type: "claude-code", providers: ["anthropic"] },
+  { type: "claude-code", providers: ["anthropic", "litellm"] },
   { type: "codex",       providers: ["openai", "litellm", "nvidia"] },
   { type: "opencode",    providers: ["litellm", "openrouter", "anthropic", "openai", "gemini", "nvidia"] },
   { type: "pi",          providers: ["anthropic", "openai", "litellm", "gemini", "nvidia"] },
-  { type: "gemini",      providers: ["gemini"] },
+  { type: "gemini",      providers: ["gemini", "litellm"] },
   { type: "openclaw",    providers: ["litellm", "openrouter", "anthropic", "openai", "gemini", "nvidia"] },
   { type: "hermes",      providers: ["litellm", "openrouter", "anthropic", "openai", "gemini", "nvidia"] },
   { type: "moltis",      providers: ["litellm", "openrouter", "anthropic", "openai", "gemini", "nvidia"] },

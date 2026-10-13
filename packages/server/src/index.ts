@@ -1,11 +1,13 @@
+import "./platforms/localstorage-shim.js"; // MUST be first — installs localStorage before any komodo_client import is evaluated
 import { Readable } from "node:stream";
 import httpProxy from "http-proxy";
 import cors from "@fastify/cors";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "./routers/index.js";
-import { getAgentRunning } from "./platforms/dispatch.js";
+import { getAgentRunning, provisionAgent } from "./platforms/dispatch.js";
 import { probePortainer } from "./platforms/portainer.js";
+import { probeKomodo } from "./platforms/komodo.js";
 import { listAgentStates, loadAgentState, saveAgentState } from "./agents/state.js";
 import {
   validateAgentProxyToken,
@@ -114,6 +116,9 @@ server.addHook("onRequest", async (request, reply) => {
   agentUiProxy.web(request.raw, reply.raw, { target: resolution.targetUrl });
   return reply;
 });
+
+// Unauthenticated liveness probe for Docker/load balancers; exposes no state.
+server.get("/health", async () => ({ status: "ok" }));
 
 server.all("/trpc/*", async (request: FastifyRequest, reply: FastifyReply) => {
   const body =
@@ -232,14 +237,28 @@ await bootstrapSshKeysFromEnv();
 async function syncAgentStatuses(): Promise<void> {
   try {
     const states = await listAgentStates();
-    const portainerStatus = await probePortainer().catch(() => null);
+    const [portainerStatus, komodoStatus] = await Promise.all([
+      probePortainer().catch(() => null),
+      probeKomodo().catch(() => null),
+    ]);
     await Promise.all(
       states
-        .filter((s) => s.status === "running")
+        .filter((s) => s.status === "running" || s.status === "idle" || (s.status === "error" && s.config.persistent))
         .map(async (state) => {
           try {
             const running = await getAgentRunning(state.platformRef);
             if (running === false) {
+              if (state.config.persistent) {
+                const platformRef = await provisionAgent(state.config);
+                state.platformRef = platformRef;
+                state.status = "running";
+                delete state.error;
+                state.config.lastActiveAt = new Date().toISOString();
+                state.logs.push("[devlet] persistent agent was stopped or missing — reprovisioned");
+                await saveAgentState(state);
+                return;
+              }
+
               state.status = "terminated";
               state.logs.push("[devlet] container exited — marked terminated");
               await saveAgentState(state);
@@ -256,6 +275,22 @@ async function syncAgentStatuses(): Promise<void> {
                 state.status = "error";
                 state.error = `Portainer endpoint ${platform.endpointId} is offline or unreachable`;
                 state.logs.push("[devlet] Portainer endpoint offline — marked error");
+                await saveAgentState(state);
+              }
+            }
+
+            if (running === null && state.config.platform.type === "komodo") {
+              const platform = state.config.platform;
+              const server = komodoStatus?.connected
+                ? komodoStatus.servers.find(
+                    (item) => item.id === platform.serverId || item.name === platform.serverName
+                  )
+                : null;
+
+              if (!komodoStatus?.connected || !server || server.state !== "ok") {
+                state.status = "error";
+                state.error = `Komodo server ${platform.serverId} is offline or unreachable`;
+                state.logs.push("[devlet] Komodo server offline — marked error");
                 await saveAgentState(state);
               }
             }

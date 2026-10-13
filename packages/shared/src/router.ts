@@ -13,11 +13,13 @@ import {
   HireAgentInputSchema,
   AgentStateSchema,
   UpdateMissionInputSchema,
+  RecoverAgentInputSchema,
   SetDefaultInputSchema,
   SetAgentTypeConfigInputSchema,
   AgentTypeSchema,
   SetPortainerExclusionInputSchema,
   SetProxmoxExclusionInputSchema,
+  SetKomodoExclusionInputSchema,
   AddSshKeyInputSchema,
 } from "./schemas/index.js";
 import type {
@@ -27,6 +29,7 @@ import type {
   PortainerStatus,
   PortainerStack,
   ProxmoxStatus,
+  KomodoStatus,
   AgentTemplate,
   ProviderInfo,
   AgentTypeConfigMap,
@@ -76,6 +79,10 @@ export const appRouter = router({
       .input(z.string())
       .mutation(unimplemented as () => AgentState),
 
+    recover: publicProcedure
+      .input(RecoverAgentInputSchema)
+      .mutation(unimplemented as () => AgentState),
+
     logs: publicProcedure
       .input(z.string())
       .query(unimplemented as () => string[]),
@@ -104,6 +111,13 @@ export const appRouter = router({
       status: publicProcedure.query(unimplemented as () => ProxmoxStatus),
       setExcluded: publicProcedure
         .input(SetProxmoxExclusionInputSchema)
+        .mutation(unimplemented as () => PlatformExclusions),
+    }),
+
+    komodo: router({
+      status: publicProcedure.query(unimplemented as () => KomodoStatus),
+      setExcluded: publicProcedure
+        .input(SetKomodoExclusionInputSchema)
         .mutation(unimplemented as () => PlatformExclusions),
     }),
   }),

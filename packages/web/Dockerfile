@@ -1,5 +1,5 @@
-ARG NODE_IMAGE=node:22.22.2-slim
-ARG NGINX_IMAGE=nginx:1.28.3-alpine
+ARG NODE_IMAGE=node:22.23.3-slim
+ARG NGINX_IMAGE=nginx:1.30.5-alpine
 
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
 FROM ${NODE_IMAGE} AS builder

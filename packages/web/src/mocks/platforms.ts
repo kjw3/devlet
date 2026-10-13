@@ -1,4 +1,4 @@
-import type { DockerStatus, PortainerStatus, ProxmoxStatus } from "@devlet/shared";
+import type { DockerStatus, KomodoStatus, PortainerStatus, ProxmoxStatus } from "@devlet/shared";
 
 export const MOCK_DOCKER_STATUS: DockerStatus = {
   connected: true,
@@ -61,6 +61,36 @@ export const MOCK_PROXMOX_STATUS_ONLINE: ProxmoxStatus = {
       memoryTotal: 65536,
       gpuCount: 0,
       architecture: "arm64",
+    },
+  ],
+};
+
+export const MOCK_KOMODO_STATUS: KomodoStatus = {
+  connected: true,
+  version: "2.3.2",
+  servers: [
+    {
+      id: "srv-01",
+      name: "docker1",
+      state: "ok",
+      host: "10.0.0.20",
+      gpuAvailable: false,
+      architecture: "amd64",
+      totalMemoryGb: 32,
+      usedMemoryGb: 12,
+      coreCount: 8,
+    },
+    {
+      id: "srv-02",
+      name: "gpu1",
+      state: "ok",
+      host: "10.0.0.21",
+      gpuAvailable: true,
+      gpuModel: "NVIDIA GeForce RTX 4080",
+      architecture: "amd64",
+      totalMemoryGb: 64,
+      usedMemoryGb: 20,
+      coreCount: 16,
     },
   ],
 };
