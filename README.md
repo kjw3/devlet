@@ -32,7 +32,7 @@ Treat Devlet as a privileged control plane.
 - The server manages agent containers and may have access to the host Docker socket.
 - A compromised Devlet server can become a host compromise path.
 - Run it only on machines and networks you control.
-- Put it behind strong authentication and TLS if you expose it beyond localhost.
+- Put it behind strong authentication and TLS if you expose it beyond localhost (for SSO, see [docs/authentik-caddy.md](docs/authentik-caddy.md)).
 
 If you are evaluating this project, assume the safe deployment target is a **trusted private network**, not a public SaaS-style environment.
 

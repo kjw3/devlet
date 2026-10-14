@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Routes, Route, NavLink } from "react-router-dom";
 import { Dashboard } from "./pages/Dashboard.js";
 import { AgentDetail } from "./pages/AgentDetail.js";
@@ -16,9 +16,30 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       : window.localStorage.getItem(DEVLET_AUTH_STORAGE_KEY) ?? ""
   );
   const [draft, setDraft] = useState(token);
+  // "unknown" while probing; "open" when a reverse proxy (e.g. Caddy + authentik) injects the bearer token.
+  const [proxyAuth, setProxyAuth] = useState<"unknown" | "open" | "closed">(token ? "closed" : "unknown");
 
-  if (token) {
+  useEffect(() => {
+    if (token) return;
+    let cancelled = false;
+    fetch("/trpc/agents.list", { credentials: "same-origin" })
+      .then((response) => {
+        if (!cancelled) setProxyAuth(response.ok ? "open" : "closed");
+      })
+      .catch(() => {
+        if (!cancelled) setProxyAuth("closed");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  if (token || proxyAuth === "open") {
     return <>{children}</>;
+  }
+
+  if (proxyAuth === "unknown") {
+    return null;
   }
 
   return (
