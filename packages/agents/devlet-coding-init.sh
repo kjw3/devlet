@@ -170,15 +170,33 @@ if $_dci_litellm && command -v pi &>/dev/null && \
 fi
 unset _dci_env _dci_v
 
+# ~/.codex/config.toml body. $1 model, $2 base URL (empty = OpenAI), $3 "litellm" for the gateway.
+# A gateway reached through a reverse proxy usually rejects Codex's default Responses
+# WebSocket (403 on the upgrade, then 5 retries before the HTTPS fallback), so LiteLLM gets
+# its own provider with WebSockets off. It reuses the login key (requires_openai_auth) so a
+# terminal shell needs no extra env. The model's context window is passed along so Codex
+# stops warning about missing model metadata.
+_dci_codex_config() {
+  printf 'model = "%s"\n' "${1:-o4-mini}"
+  if [ "$3" = "litellm" ] && [ -n "$2" ]; then
+    local lim ctx
+    lim=$(_dci_litellm_limits "$1"); ctx="${lim%% *}"
+    [ -n "$ctx" ] && printf 'model_context_window = %s\n' "$ctx"
+    printf 'model_provider = "litellm"\n\n[model_providers.litellm]\nname = "LiteLLM"\nbase_url = "%s"\nwire_api = "responses"\nrequires_openai_auth = true\nsupports_websockets = false\n' "$2"
+  elif [ -n "$2" ]; then
+    printf 'openai_base_url = "%s"\n' "$2"
+  fi
+}
+
 # ─── Codex ───────────────────────────────────────────────────────────────────
 if command -v codex &>/dev/null; then
-  _dci_api_key="" _dci_base_url="" _dci_model=""
+  _dci_api_key="" _dci_base_url="" _dci_model="" _dci_kind=""
   if [ -n "${OPENAI_API_KEY:-}" ]; then
     _dci_api_key="$OPENAI_API_KEY"
     _dci_model="${DEVLET_DEFAULT_MODEL:-o4-mini}"
   elif [ -n "${LITELLM_API_KEY:-}" ] && [ -n "${LITELLM_BASE_URL:-}" ]; then
     _dci_api_key="$LITELLM_API_KEY"
-    _dci_base_url="${LITELLM_BASE_URL}/v1"
+    _dci_base_url="${LITELLM_BASE_URL}/v1"; _dci_kind=litellm
     _dci_model=$(_dci_litellm_model codex)
   elif [ -n "${NVIDIA_API_KEY:-}" ]; then
     _dci_api_key="$NVIDIA_API_KEY"
@@ -190,12 +208,9 @@ if command -v codex &>/dev/null; then
     # Codex reads ~/.codex/config.toml (not ~/.config/codex/*), so a bare `codex`
     # typed in the web terminal picks up the gateway as well as scripted runs.
     mkdir -p ~/.codex
-    {
-      printf 'model = "%s"\n' "${_dci_model:-o4-mini}"
-      [ -n "$_dci_base_url" ] && printf 'openai_base_url = "%s"\n' "$_dci_base_url"
-    } > ~/.codex/config.toml
+    _dci_codex_config "$_dci_model" "$_dci_base_url" "$_dci_kind" > ~/.codex/config.toml
   fi
-  unset _dci_api_key _dci_base_url _dci_model
+  unset _dci_api_key _dci_base_url _dci_model _dci_kind
 fi
 
 # ─── OpenCode ─────────────────────────────────────────────────────────────────

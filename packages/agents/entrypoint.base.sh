@@ -70,10 +70,8 @@ case "$AGENT_TYPE" in
     esac
     # Overwrite config with the exact requested model (devlet-coding-init wrote auto-detected defaults)
     mkdir -p ~/.codex
-    {
-      printf 'model = "%s"\n' "${CODEX_MODEL:-o4-mini}"
-      [ -n "${CODEX_BASE_URL:-}" ] && printf 'openai_base_url = "%s"\n' "$CODEX_BASE_URL"
-    } > ~/.codex/config.toml
+    _codex_kind=""; case "$CODEX_BASE_URL" in "${LITELLM_BASE_URL:-@}"/v1) _codex_kind=litellm;; esac
+    _dci_codex_config "${CODEX_MODEL:-o4-mini}" "${CODEX_BASE_URL:-}" "$_codex_kind" > ~/.codex/config.toml
     ;;
   opencode)
     if [ -n "$PROVIDER" ]; then RESOLVED_PROVIDER="$PROVIDER"
@@ -118,7 +116,8 @@ case "$AGENT_TYPE" in
     echo "[devlet] codex model=$CODEX_MODEL base_url=${CODEX_BASE_URL:-https://api.openai.com/v1}"
 
     CODEX_CONF=(-c "model=\"${CODEX_MODEL}\"")
-    [ -n "$CODEX_BASE_URL" ] && CODEX_CONF+=(-c "openai_base_url=\"${CODEX_BASE_URL}\"")
+    # config.toml (written above) already routes LiteLLM through its own provider
+    [ -n "$CODEX_BASE_URL" ] && [ -z "$_codex_kind" ] && CODEX_CONF+=(-c "openai_base_url=\"${CODEX_BASE_URL}\"")
 
     if [ -n "$MISSION" ]; then
       codex exec "${CODEX_CONF[@]}" --dangerously-bypass-approvals-and-sandbox "$MISSION"
