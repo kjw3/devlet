@@ -81,6 +81,49 @@ Caddyfile if you prefer.
   through forward auth.
 - Devlet does not learn who the user is; everyone authentik admits has full control.
 
+## Tailscale Service front (trust Tailscale identity instead of authentik)
+
+If Devlet's UI is also published as a [Tailscale Service](https://tailscale.com/kb/1552/tailscale-services)
+(`tailscale serve --service=svc:devlet`), point the service at Caddy rather than straight at the
+web container, and let Caddy trust the identity Tailscale already established. This avoids a second
+login and does not need the tailnet client to reach authentik.
+
+On the host running the service (the service target may be a remote address, not only localhost):
+
+```
+tailscale serve --service=svc:devlet --https=443 http://<caddy-host>:80
+```
+
+In Caddy, add a plain-HTTP site for the service name (Tailscale terminates TLS). `tailscale serve`
+adds `Tailscale-User-Login` to every request, so accept it only from the serving host and only for
+allowlisted logins, then inject the bearer token as before:
+
+```caddy
+http://devlet.<tailnet>.ts.net {
+    @ok {
+        remote_ip <serving-host-ip>
+        header_regexp Tailscale-User-Login ^(you@example\.com|teammate@example\.com)$
+    }
+    handle @ok {
+        request_header /trpc/* Authorization "Bearer {env.DEVLET_AUTH_TOKEN}"
+        reverse_proxy devlet-host:3000
+    }
+    respond "forbidden" 403
+}
+```
+
+Notes:
+
+- The `remote_ip` check is what makes the header trustworthy. Without it, anyone who can reach
+  Caddy could forge `Tailscale-User-Login`. Verify with a forged header from another host: it must
+  return 403.
+- Tagged devices have no user login, so they are rejected. Access follows Tailscale ACLs plus the
+  allowlist, not authentik groups.
+- To find the exact login string, temporarily make the site respond with
+  `{http.request.header.Tailscale-User-Login}` (still restricted by `remote_ip`).
+- Agent terminal and gateway links still use the `*.devlet.example.com` hosts and therefore
+  authentik, so they only work for people who can reach that name.
+
 ## Troubleshooting
 
 **Login loops or a 400 on `/outpost.goauthentik.io/callback`, log says `mismatched session ID` /
