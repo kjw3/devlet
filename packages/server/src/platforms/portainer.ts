@@ -37,6 +37,7 @@ export async function probePortainer(): Promise<PortainerStatus> {
   if (!url || !apiKey) {
     return {
       connected: false,
+      configured: false,
       endpoints: [],
       error: "PORTAINER_URL or PORTAINER_API_KEY not configured",
     };

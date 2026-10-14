@@ -7,12 +7,6 @@ import type {
   PlatformTarget,
   SchedulerContext,
 } from "@devlet/shared";
-import {
-  MOCK_DOCKER_STATUS,
-  MOCK_KOMODO_STATUS,
-  MOCK_PORTAINER_STATUS,
-  MOCK_PROXMOX_STATUS,
-} from "../mocks/platforms.js";
 
 const PLATFORM_LABELS: Record<string, string> = {
   docker: "Docker",
@@ -83,8 +77,10 @@ interface PlacementPreviewProps {
   onPlacement: (p: PlatformTarget | undefined) => void;
   /** Currently selected override, if any */
   override?: PlatformTarget;
-  /** Live platform status from the server — falls back to mocks when not available */
+  /** Live platform status from the server; a platform that is absent is not considered */
   context?: Partial<SchedulerContext>;
+  /** Platform status is still being fetched, so no recommendation can be made yet */
+  loading?: boolean;
 }
 
 export function PlacementPreview({
@@ -92,17 +88,22 @@ export function PlacementPreview({
   onPlacement,
   override,
   context,
+  loading,
 }: PlacementPreviewProps) {
   const [showOverrides, setShowOverrides] = useState(false);
 
-  // Platforms not yet fully implemented — hidden from placement options.
-  const COMING_SOON_PLATFORM_TYPES = new Set(["proxmox"]);
+  // Hidden from placement options: platforms not yet fully implemented, plus any
+  // the server reports as not configured in this deployment.
+  const COMING_SOON_PLATFORM_TYPES = new Set<string>(["proxmox"]);
+  for (const type of ["docker", "portainer", "proxmox", "komodo"] as const) {
+    if (context?.[type]?.configured === false) COMING_SOON_PLATFORM_TYPES.add(type);
+  }
 
   const schedulerContext: SchedulerContext = {
-    docker: context?.docker ?? MOCK_DOCKER_STATUS,
-    portainer: context?.portainer ?? MOCK_PORTAINER_STATUS,
-    proxmox: context?.proxmox ?? MOCK_PROXMOX_STATUS,
-    komodo: context?.komodo ?? MOCK_KOMODO_STATUS,
+    docker: context?.docker ?? null,
+    portainer: context?.portainer ?? null,
+    proxmox: context?.proxmox ?? null,
+    komodo: context?.komodo ?? null,
   };
 
   const decision: PlacementDecision = scheduleAgent(requirements, schedulerContext);
@@ -122,6 +123,14 @@ export function PlacementPreview({
       s.platform.type !== decision.winner?.platform.type &&
       !COMING_SOON_PLATFORM_TYPES.has(s.platform.type)
   );
+
+  if (loading) {
+    return (
+      <div className="card p-4">
+        <div className="label animate-pulse">checking platforms…</div>
+      </div>
+    );
+  }
 
   // Surface-level outcome display
   if (decision.outcome === "no-platforms") {

@@ -10,6 +10,8 @@ export type PlatformTarget =
 // Status shapes returned by platform health checks
 export interface DockerStatus {
   connected: boolean;
+  /** False when the platform has no credentials/socket here; the UI hides it. Absent means configured. */
+  configured?: boolean;
   version?: string;
   containers: { running: number; stopped: number; total: number };
   /** Whether the Docker host has GPU runtime support (nvidia-container-runtime) */
@@ -44,6 +46,8 @@ export interface PortainerStack {
 
 export interface PortainerStatus {
   connected: boolean;
+  /** False when the platform has no credentials/socket here; the UI hides it. Absent means configured. */
+  configured?: boolean;
   version?: string;
   endpoints: PortainerEndpoint[];
   error?: string;
@@ -71,6 +75,8 @@ export interface ProxmoxNode {
 
 export interface ProxmoxStatus {
   connected: boolean;
+  /** False when the platform has no credentials/socket here; the UI hides it. Absent means configured. */
+  configured?: boolean;
   version?: string;
   nodes: ProxmoxNode[];
   error?: string;
@@ -102,6 +108,8 @@ export interface KomodoServer {
 
 export interface KomodoStatus {
   connected: boolean;
+  /** False when the platform has no credentials/socket here; the UI hides it. Absent means configured. */
+  configured?: boolean;
   version?: string;
   servers: KomodoServer[];
   error?: string;

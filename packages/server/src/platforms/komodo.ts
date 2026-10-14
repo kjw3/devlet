@@ -147,6 +147,7 @@ export async function probeKomodo(): Promise<KomodoStatus> {
   if (!komodo) {
     return {
       connected: false,
+      configured: false,
       servers: [],
       error: "Komodo is not configured (set KOMODO_URL / KOMODO_API_KEY / KOMODO_API_SECRET)",
     };

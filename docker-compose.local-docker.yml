@@ -1,0 +1,12 @@
+# Opt-in: let the Devlet server run agents on the Docker daemon of the host it runs on.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.local-docker.yml up -d
+#
+# The base compose file does NOT mount the Docker socket, so a production control plane
+# (placing agents through Komodo / Portainer instead) has no root-equivalent access to its
+# own host. Without the socket the "Docker" platform is hidden in the UI.
+
+services:
+  devlet-server:
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

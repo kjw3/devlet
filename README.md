@@ -29,7 +29,7 @@ The codebase is still evolving, the security model is still maturing, and breaki
 
 Treat Devlet as a privileged control plane.
 
-- The server manages agent containers and may have access to the host Docker socket.
+- The server manages agent containers and, if you opt in with `docker-compose.local-docker.yml`, has access to the host Docker socket.
 - A compromised Devlet server can become a host compromise path.
 - Run it only on machines and networks you control.
 - Put it behind strong authentication and TLS if you expose it beyond localhost (for SSO, see [docs/authentik-caddy.md](docs/authentik-caddy.md)).
@@ -53,7 +53,7 @@ Devlet provides:
 
 | Platform | Notes |
 | --- | --- |
-| Docker | Local Docker socket. |
+| Docker | Local Docker socket (opt-in via `docker-compose.local-docker.yml`). |
 | Portainer | Endpoints discovered from the Portainer API; GPU info comes from endpoint snapshots. |
 | Komodo | Servers discovered from Komodo. Devlet detects each server's LAN address and NVIDIA GPUs by itself, even when Komodo's agent runs in a container (see [Komodo notes](docs/platforms.md#komodo)). |
 | Proxmox | Placement/discovery only; provisioning is not implemented yet. |
@@ -92,6 +92,11 @@ openssl rand -hex 32
 ```bash
 docker compose up --build
 ```
+
+The server does not get the host Docker socket by default, so the local **Docker** platform is
+off (and hidden in the UI). To place agents on the Docker daemon of the machine Devlet runs on,
+add the opt-in override: `docker compose -f docker-compose.yml -f docker-compose.local-docker.yml up -d`.
+Platforms without credentials (Portainer, Komodo, Proxmox) are hidden the same way.
 
 By default the services bind to loopback only:
 

@@ -1,4 +1,5 @@
 import Docker from "dockerode";
+import fs from "fs";
 import net from "net";
 import type { AgentConfig, AgentType, DockerImage, DockerStatus } from "@devlet/shared";
 import { buildContainerEnv } from "./env.js";
@@ -127,7 +128,20 @@ export function parseDockerLogBuffer(buffer: Buffer): string[] {
     .slice(-100);
 }
 
+/** Local Docker counts as configured only when a daemon endpoint is wired in (DOCKER_HOST or the default socket). */
+function isDockerConfigured(): boolean {
+  return Boolean(process.env["DOCKER_HOST"]) || fs.existsSync("/var/run/docker.sock");
+}
+
 export async function probeDocker(): Promise<DockerStatus> {
+  if (!isDockerConfigured()) {
+    return {
+      connected: false,
+      configured: false,
+      containers: { running: 0, stopped: 0, total: 0 },
+      error: "No Docker socket mounted (local Docker is disabled)",
+    };
+  }
   try {
     const docker = createDocker();
     await docker.ping();

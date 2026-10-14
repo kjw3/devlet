@@ -285,10 +285,11 @@ export function HireAgent() {
   });
 
   // Live platform status for accurate scheduler preview
-  const { data: dockerStatus } = trpc.platforms.docker.status.useQuery(undefined, { staleTime: 10_000 });
-  const { data: portainerStatus } = trpc.platforms.portainer.status.useQuery(undefined, { staleTime: 10_000 });
-  const { data: proxmoxStatus } = trpc.platforms.proxmox.status.useQuery(undefined, { staleTime: 10_000 });
-  const { data: komodoStatus } = trpc.platforms.komodo.status.useQuery(undefined, { staleTime: 15_000 });
+  const { data: dockerStatus, isLoading: dockerLoading } = trpc.platforms.docker.status.useQuery(undefined, { staleTime: 10_000 });
+  const { data: portainerStatus, isLoading: portainerLoading } = trpc.platforms.portainer.status.useQuery(undefined, { staleTime: 10_000 });
+  const { data: proxmoxStatus, isLoading: proxmoxLoading } = trpc.platforms.proxmox.status.useQuery(undefined, { staleTime: 10_000 });
+  const { data: komodoStatus, isLoading: komodoLoading } = trpc.platforms.komodo.status.useQuery(undefined, { staleTime: 15_000 });
+  const platformsLoading = dockerLoading || portainerLoading || proxmoxLoading || komodoLoading;
 
   const liveContext = {
     ...(dockerStatus ? { docker: dockerStatus } : {}),
@@ -611,6 +612,7 @@ export function HireAgent() {
                     {...(form.platformOverride ? { override: form.platformOverride } : {})}
                     onPlacement={(p) => update("platformOverride", p)}
                     context={reviewContext}
+                    loading={platformsLoading}
                   />
                 )}
               </div>
@@ -782,6 +784,7 @@ export function HireAgent() {
                     {...(form.platformOverride ? { override: form.platformOverride } : {})}
                     onPlacement={(p) => update("platformOverride", p)}
                     context={reviewContext}
+                    loading={platformsLoading}
                   />
                 )}
               </div>

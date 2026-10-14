@@ -234,10 +234,18 @@ export function PlatformSidebar() {
   return (
     <aside className="w-52 flex-shrink-0 border-l border-surface-border bg-surface p-4 overflow-y-auto">
       <div className="label mb-4 text-gray-600">platforms</div>
-      <DockerPanel loading={dockerLoading} {...(docker ? { status: docker } : {})} />
-      <PortainerPanel loading={portainerLoading} {...(portainer ? { status: portainer } : {})} />
-      <ProxmoxPanel loading={proxmoxLoading} {...(proxmox ? { status: proxmox } : {})} />
-      <KomodoPanel loading={komodoLoading} {...(komodo ? { status: komodo } : {})} />
+      {docker?.configured !== false && (
+        <DockerPanel loading={dockerLoading} {...(docker ? { status: docker } : {})} />
+      )}
+      {portainer?.configured !== false && (
+        <PortainerPanel loading={portainerLoading} {...(portainer ? { status: portainer } : {})} />
+      )}
+      {proxmox?.configured !== false && (
+        <ProxmoxPanel loading={proxmoxLoading} {...(proxmox ? { status: proxmox } : {})} />
+      )}
+      {komodo?.configured !== false && (
+        <KomodoPanel loading={komodoLoading} {...(komodo ? { status: komodo } : {})} />
+      )}
     </aside>
   );
 }

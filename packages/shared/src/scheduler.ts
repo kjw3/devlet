@@ -598,16 +598,17 @@ export function scheduleAgent(
 ): PlacementDecision {
   const scores: PlatformScore[] = [];
 
-  if (ctx.docker) scores.push(scoreDocker(reqs, ctx.docker));
-  if (ctx.portainer) scores.push(scorePortainer(reqs, ctx.portainer));
-  if (ctx.proxmox) scores.push(scoreProxmox(reqs, ctx.proxmox));
-  if (ctx.komodo) scores.push(scoreKomodo(reqs, ctx.komodo));
+  // A platform the server reports as not configured here is not a candidate at all.
+  if (ctx.docker && ctx.docker.configured !== false) scores.push(scoreDocker(reqs, ctx.docker));
+  if (ctx.portainer && ctx.portainer.configured !== false) scores.push(scorePortainer(reqs, ctx.portainer));
+  if (ctx.proxmox && ctx.proxmox.configured !== false) scores.push(scoreProxmox(reqs, ctx.proxmox));
+  if (ctx.komodo && ctx.komodo.configured !== false) scores.push(scoreKomodo(reqs, ctx.komodo));
 
   if (scores.length === 0) {
     return {
       outcome: "no-platforms",
       scores: [],
-      summary: "No platforms configured — add Docker, Portainer, or Proxmox in settings",
+      summary: "No platforms configured — configure Docker, Portainer, Komodo or Proxmox",
     };
   }
 

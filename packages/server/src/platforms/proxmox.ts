@@ -74,6 +74,7 @@ export async function probeProxmox(): Promise<ProxmoxStatus> {
   if (!url || !user || !tokenId || !tokenSecret) {
     return {
       connected: false,
+      configured: false,
       nodes: [],
       error: "Proxmox credentials not configured (PROXMOX_URL, PROXMOX_USER, PROXMOX_TOKEN_ID, PROXMOX_TOKEN_SECRET)",
     };

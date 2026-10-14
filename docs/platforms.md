@@ -45,7 +45,8 @@ endpoint's Docker host and reached through the endpoint's address.
 
 ## Docker (local)
 
-Agents run on the Docker socket mounted into the Devlet server. Published ports bind to loopback on
+Opt-in: add `docker-compose.local-docker.yml` to mount the host Docker socket into the Devlet server
+(omit it on a production control plane that places agents through Komodo or Portainer). Agents then run on that socket. Published ports bind to loopback on
 the Docker host and the server proxies to them via `DEVLET_DOCKER_PROXY_HOST`
 (default `host.docker.internal`).
 
