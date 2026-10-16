@@ -1,13 +1,13 @@
-import { useState } from "react";
-import { scheduleAgent } from "@devlet/shared";
 import type {
   PlacementRequirements,
   PlacementDecision,
   PlatformTarget,
+  PlatformType,
   SchedulerContext,
 } from "@devlet/shared";
+import { scheduleAgent } from "@devlet/shared";
 
-const PLATFORM_LABELS: Record<string, string> = {
+const PLATFORM_LABELS: Record<PlatformType, string> = {
   docker: "Docker",
   portainer: "Portainer",
   proxmox: "Proxmox",
@@ -38,11 +38,12 @@ function ScoreBar({ score }: { score: number }) {
 /** One concrete place an agent could go: a Docker host, Portainer endpoint, Komodo server or Proxmox node. */
 interface Candidate {
   platform: PlatformTarget;
-  group: string;
+  /** Stable option key for the dropdown */
+  key: string;
   name: string;
   available: boolean;
   gpu: boolean;
-  /** Why it can't be picked (shown greyed out) */
+  /** Why it can't be picked (shown as a disabled dropdown option) */
   note?: string;
 }
 
@@ -54,96 +55,95 @@ function sameTarget(a: PlatformTarget | undefined, b: PlatformTarget): boolean {
   return true;
 }
 
-function listCandidates(
-  ctx: SchedulerContext,
-  reqs: PlacementRequirements,
-  hidden: Set<string>
-): Candidate[] {
+/** A platform with its selectable targets. Only configured (enabled) platforms are included. */
+interface PlatformGroup {
+  type: PlatformType;
+  label: string;
+  candidates: Candidate[];
+}
+
+function listPlatformGroups(ctx: SchedulerContext, reqs: PlacementRequirements): PlatformGroup[] {
   const needGpu = reqs.gpu?.required ?? false;
-  const out: Candidate[] = [];
   const fit = (online: boolean, excluded: boolean | undefined, gpu: boolean): string | undefined =>
     !online ? "offline" : excluded ? "excluded" : needGpu && !gpu ? "no GPU" : undefined;
-  const add = (c: Omit<Candidate, "available"> & { reason: string | undefined }) => {
+  const make = (c: Omit<Candidate, "available"> & { reason: string | undefined }): Candidate => {
     const { reason, ...rest } = c;
-    out.push({ ...rest, available: reason === undefined, ...(reason ? { note: reason } : {}) });
+    return { ...rest, available: reason === undefined, ...(reason ? { note: reason } : {}) };
   };
 
-  if (!hidden.has("docker") && ctx.docker) {
-    add({
-      platform: { type: "docker" },
-      group: "Docker",
-      name: "local",
-      gpu: Boolean(ctx.docker.gpuAvailable),
-      reason: fit(ctx.docker.connected, false, Boolean(ctx.docker.gpuAvailable)),
+  const groups: PlatformGroup[] = [];
+
+  const docker = ctx.docker;
+  // A platform with no status here or reported as not configured is hidden.
+  if (docker && docker.configured !== false) {
+    groups.push({
+      type: "docker",
+      label: PLATFORM_LABELS.docker,
+      candidates: [
+        make({
+          platform: { type: "docker" },
+          key: "docker",
+          name: "local host",
+          gpu: Boolean(docker.gpuAvailable),
+          reason: fit(docker.connected, false, Boolean(docker.gpuAvailable)),
+        }),
+      ],
     });
   }
-  if (!hidden.has("portainer") && ctx.portainer) {
-    for (const e of ctx.portainer.endpoints) {
-      add({
-        platform: { type: "portainer", endpointId: e.id, endpointName: e.name },
-        group: "Portainer",
-        name: e.name,
-        gpu: Boolean(e.gpuAvailable),
-        reason: fit(ctx.portainer.connected && e.status === 1, e.excluded, Boolean(e.gpuAvailable)),
-      });
-    }
+
+  const portainer = ctx.portainer;
+  if (portainer && portainer.configured !== false) {
+    groups.push({
+      type: "portainer",
+      label: PLATFORM_LABELS.portainer,
+      candidates: portainer.endpoints.map((e) =>
+        make({
+          platform: { type: "portainer", endpointId: e.id, endpointName: e.name },
+          key: `portainer:${e.id}`,
+          name: e.name,
+          gpu: Boolean(e.gpuAvailable),
+          reason: fit(portainer.connected && e.status === 1, e.excluded, Boolean(e.gpuAvailable)),
+        })
+      ),
+    });
   }
-  if (!hidden.has("komodo") && ctx.komodo) {
-    for (const sv of ctx.komodo.servers) {
-      add({
-        platform: { type: "komodo", serverId: sv.id, serverName: sv.name },
-        group: "Komodo",
-        name: sv.name,
-        gpu: Boolean(sv.gpuAvailable),
-        reason: fit(ctx.komodo.connected && sv.state === "ok", sv.excluded, Boolean(sv.gpuAvailable)),
-      });
-    }
-  }
-  if (!hidden.has("proxmox") && ctx.proxmox) {
+
+  const proxmox = ctx.proxmox;
+  if (proxmox && proxmox.configured !== false) {
     const vmType = reqs.gpu?.passthroughMode === "vm" || needGpu ? "qemu" : "lxc";
-    for (const n of ctx.proxmox.nodes) {
-      add({
-        platform: { type: "proxmox", node: n.name, vmType },
-        group: "Proxmox",
-        name: n.name,
-        gpu: (n.gpuCount ?? 0) > 0,
-        reason: fit(ctx.proxmox.connected && n.status === "online", n.excluded, (n.gpuCount ?? 0) > 0),
-      });
-    }
+    groups.push({
+      type: "proxmox",
+      label: PLATFORM_LABELS.proxmox,
+      candidates: proxmox.nodes.map((n) =>
+        make({
+          platform: { type: "proxmox", node: n.name, vmType },
+          key: `proxmox:${n.name}`,
+          name: `${n.name} (${vmType})`,
+          gpu: (n.gpuCount ?? 0) > 0,
+          reason: fit(proxmox.connected && n.status === "online", n.excluded, (n.gpuCount ?? 0) > 0),
+        })
+      ),
+    });
   }
-  return out;
-}
 
-interface CandidateRowProps {
-  candidate: Candidate;
-  selected: boolean;
-  recommended: boolean;
-  onSelect: (p: PlatformTarget) => void;
-}
+  const komodo = ctx.komodo;
+  if (komodo && komodo.configured !== false) {
+    groups.push({
+      type: "komodo",
+      label: PLATFORM_LABELS.komodo,
+      candidates: komodo.servers.map((sv) =>
+        make({
+          platform: { type: "komodo", serverId: sv.id, serverName: sv.name },
+          key: `komodo:${sv.id}`,
+          name: sv.name,
+          gpu: Boolean(sv.gpuAvailable),
+          reason: fit(komodo.connected && sv.state === "ok", sv.excluded, Boolean(sv.gpuAvailable)),
+        })
+      ),
+    });
+  }
 
-function CandidateRow({ candidate, selected, recommended, onSelect }: CandidateRowProps) {
-  return (
-    <div
-      className={`flex items-center justify-between py-2 px-3 rounded-sm text-[11px] border ${
-        selected
-          ? "border-accent-amber/40 bg-accent-amber/5"
-          : candidate.available
-          ? "border-surface-border hover:border-gray-600 cursor-pointer"
-          : "border-transparent opacity-40 cursor-not-allowed"
-      }`}
-      onClick={() => candidate.available && onSelect(candidate.platform)}
-    >
-      <div className="flex items-center gap-2 min-w-0">
-        <span className={`status-dot flex-shrink-0 ${candidate.available ? "bg-status-running" : "bg-status-error"}`} />
-        <span className="text-gray-400 truncate">{candidate.name}</span>
-        {candidate.gpu && <span className="text-[9px] text-accent-purple">GPU</span>}
-        {candidate.note && <span className="text-gray-600 italic">— {candidate.note}</span>}
-      </div>
-      {recommended && (
-        <span className="text-[10px] text-accent-cyan uppercase tracking-wider flex-shrink-0">recommended</span>
-      )}
-    </div>
-  );
+  return groups;
 }
 
 interface PlacementPreviewProps {
@@ -158,6 +158,9 @@ interface PlacementPreviewProps {
   loading?: boolean;
 }
 
+const SELECT_CLASS =
+  "bg-surface border border-surface-border text-gray-300 text-[11px] rounded-sm px-2 py-1 focus:outline-none focus:border-accent-cyan disabled:opacity-40 max-w-48";
+
 export function PlacementPreview({
   requirements,
   onPlacement,
@@ -165,15 +168,6 @@ export function PlacementPreview({
   context,
   loading,
 }: PlacementPreviewProps) {
-  const [showOverrides, setShowOverrides] = useState(false);
-
-  // Hidden from placement options: platforms not yet fully implemented, plus any
-  // the server reports as not configured in this deployment.
-  const COMING_SOON_PLATFORM_TYPES = new Set<string>(["proxmox"]);
-  for (const type of ["docker", "portainer", "proxmox", "komodo"] as const) {
-    if (context?.[type]?.configured === false) COMING_SOON_PLATFORM_TYPES.add(type);
-  }
-
   const schedulerContext: SchedulerContext = {
     docker: context?.docker ?? null,
     portainer: context?.portainer ?? null,
@@ -183,18 +177,36 @@ export function PlacementPreview({
 
   const decision: PlacementDecision = scheduleAgent(requirements, schedulerContext);
 
-  // If the scheduler picked a coming-soon platform, suppress it.
-  const effectivePlacement =
-    decision.placement && COMING_SOON_PLATFORM_TYPES.has(decision.placement.type)
-      ? undefined
-      : decision.placement;
+  const groups = listPlatformGroups(schedulerContext, requirements);
 
-  const effective = override ?? effectivePlacement;
-  const effectiveLabel = effective ? platformLabel(effective) : "none";
+  // Effective selection: the override when set, otherwise the recommendation.
+  const effective = override ?? decision.placement;
+  const effectiveGroup =
+    effective !== undefined ? groups.find((g) => g.type === effective.type) : undefined;
   const isOverridden = override !== undefined;
 
-  const candidates = listCandidates(schedulerContext, requirements, COMING_SOON_PLATFORM_TYPES);
-  const groups = [...new Set(candidates.map((c) => c.group))];
+  /**
+   * Resolve the target dropdown's value for the selected platform: the active
+   * override when it belongs to this platform, else the recommendation when it
+   * does, else the first available target, else the first candidate.
+   */
+  function selectedCandidate(group: PlatformGroup | undefined): Candidate | undefined {
+    if (!group) return undefined;
+    if (override && override.type === group.type) {
+      const hit = group.candidates.find((c) => sameTarget(override, c.platform));
+      if (hit) return hit;
+    }
+    const recommended = group.candidates.find((c) => sameTarget(decision.placement, c.platform));
+    if (recommended) return recommended;
+    return group.candidates.find((c) => c.available) ?? group.candidates[0];
+  }
+
+  /** Changing either dropdown re-decides; landing back on the recommendation clears the override. */
+  function pick(candidate: Candidate | undefined) {
+    if (!candidate) return;
+    if (sameTarget(decision.placement, candidate.platform)) onPlacement(undefined);
+    else onPlacement(candidate.platform);
+  }
 
   if (loading) {
     return (
@@ -224,93 +236,96 @@ export function PlacementPreview({
   }
 
   return (
-    <div className="space-y-3">
-      {/* Winner card */}
-      <div
-        className={`card p-4 border transition-colors ${
-          isOverridden
-            ? "border-accent-amber/40 bg-accent-amber/5"
-            : "border-accent-cyan/30 bg-accent-cyan/5"
-        }`}
-      >
-        <div className="flex items-start justify-between gap-4 mb-3">
-          <div>
-            <div className="label mb-1">
-              {isOverridden ? "placement override" : "recommended placement"}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="status-dot bg-status-running" />
-              <span className="font-semibold text-[14px] text-gray-100">
-                {effectiveLabel}
-              </span>
-              {isOverridden && (
-                <span className="text-[10px] text-accent-amber border border-accent-amber/40 px-1.5 py-0.5 rounded-sm">
-                  override
-                </span>
-              )}
-            </div>
+    <div
+      className={`card p-4 border transition-colors ${
+        isOverridden
+          ? "border-accent-amber/40 bg-accent-amber/5"
+          : "border-accent-cyan/30 bg-accent-cyan/5"
+      }`}
+    >
+      {/* Recommendation header */}
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <div>
+          <div className="label mb-1">
+            {isOverridden ? "placement override" : "recommended placement"}
           </div>
-          {decision.winner && !isOverridden && (
-            <ScoreBar score={decision.winner.score} />
-          )}
+          <div className="flex items-center gap-2">
+            <span className="status-dot bg-status-running" />
+            <span className="font-semibold text-[14px] text-gray-100">
+              {effective ? platformLabel(effective) : "none"}
+            </span>
+            {isOverridden && (
+              <span className="text-[10px] text-accent-amber border border-accent-amber/40 px-1.5 py-0.5 rounded-sm">
+                override
+              </span>
+            )}
+          </div>
         </div>
-
-        {/* Reasoning bullets */}
-        {!isOverridden && decision.winner && decision.winner.reasons.length > 0 && (
-          <ul className="space-y-1 mb-3">
-            {decision.winner.reasons.map((r, i) => (
-              <li key={i} className="flex items-start gap-1.5 text-[11px] text-gray-400">
-                <span className="text-accent-cyan mt-0.5 flex-shrink-0">·</span>
-                {r}
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {/* Override controls */}
-        <div className="flex items-center gap-4 pt-2 border-t border-surface-border">
-          <button
-            className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
-            onClick={() => setShowOverrides((v) => !v)}
-          >
-            {showOverrides ? "hide servers ↑" : "choose server ↓"}
-          </button>
-          {isOverridden && (
-            <button
-              className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
-              onClick={() => {
-                onPlacement(undefined);
-                setShowOverrides(false);
-              }}
-            >
-              ← use recommendation ({decision.winner ? platformLabel(decision.winner.platform) : "auto"})
-            </button>
-          )}
-        </div>
+        {decision.winner && !isOverridden && <ScoreBar score={decision.winner.score} />}
       </div>
 
-      {/* Every server/endpoint/node, grouped by platform (shown on expand) */}
-      {showOverrides && candidates.length > 0 && (
-        <div className="card p-3 space-y-3">
-          {groups.map((group) => (
-            <div key={group} className="space-y-1">
-              <div className="label mb-1">{group}</div>
-              {candidates
-                .filter((c) => c.group === group)
-                .map((c) => (
-                  <CandidateRow
-                    key={`${group}:${c.name}`}
-                    candidate={c}
-                    selected={sameTarget(override, c.platform)}
-                    recommended={!isOverridden && sameTarget(effectivePlacement, c.platform)}
-                    onSelect={(p) => {
-                      onPlacement(p);
-                      setShowOverrides(false);
-                    }}
-                  />
-                ))}
-            </div>
+      {/* Reasoning bullets */}
+      {!isOverridden && decision.winner && decision.winner.reasons.length > 0 && (
+        <ul className="space-y-1 mb-3">
+          {decision.winner.reasons.map((r, i) => (
+            <li key={i} className="flex items-start gap-1.5 text-[11px] text-gray-400">
+              <span className="text-accent-cyan mt-0.5 flex-shrink-0">·</span>
+              {r}
+            </li>
           ))}
+        </ul>
+      )}
+
+      {/* Override dropdowns — default to the recommendation */}
+      {groups.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-surface-border">
+          <span className="label flex-shrink-0">platform</span>
+          <select
+            aria-label="Platform"
+            className={`${SELECT_CLASS} w-32`}
+            value={effectiveGroup?.type ?? ""}
+            onChange={(e) => {
+              const group = groups.find((g) => g.type === e.target.value);
+              // Default the target to the recommendation within the platform,
+              // falling back to the first available one.
+              pick(selectedCandidate(group));
+            }}
+          >
+            {groups.map((g) => (
+              <option key={g.type} value={g.type}>
+                {g.label} ({g.candidates.length})
+              </option>
+            ))}
+          </select>
+
+          <span className="label flex-shrink-0">target</span>
+          <select
+            aria-label="Target"
+            className={`${SELECT_CLASS} flex-1 min-w-40`}
+            value={effectiveGroup ? (selectedCandidate(effectiveGroup)?.key ?? "") : ""}
+            onChange={(e) => {
+              const group = effectiveGroup;
+              if (!group) return;
+              pick(group.candidates.find((c) => c.key === e.target.value));
+            }}
+          >
+            {effectiveGroup?.candidates.map((c) => (
+              <option key={c.key} value={c.key} disabled={!c.available}>
+                {c.name}
+                {c.gpu ? " · GPU" : ""}
+                {c.note ? ` — ${c.note}` : ""}
+              </option>
+            ))}
+          </select>
+
+          {isOverridden && (
+            <button
+              className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
+              onClick={() => onPlacement(undefined)}
+            >
+              ← recommendation
+            </button>
+          )}
         </div>
       )}
     </div>
