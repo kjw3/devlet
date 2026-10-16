@@ -42,6 +42,9 @@ export const config = {
     lxcTemplate: process.env["PROXMOX_LXC_TEMPLATE"] ?? "",
     // QEMU template VM ID to full-clone for VM agents (0 = not configured)
     qemuTemplateId: Number(process.env["PROXMOX_QEMU_TEMPLATE_ID"] ?? 0) || 0,
+    // Optional dedicated QEMU template for GPU agents (NVIDIA driver installed
+    // inside). Falls back to qemuTemplateId when unset.
+    qemuGpuTemplateId: Number(process.env["PROXMOX_QEMU_GPU_TEMPLATE_ID"] ?? 0) || 0,
     // Storage for QEMU clones (overrides). Unset = PROXMOX_STORAGE when cloning
     // on the template's node, else the template's own (shared) disk storage.
     qemuStorage: process.env["PROXMOX_QEMU_STORAGE"] ?? "",

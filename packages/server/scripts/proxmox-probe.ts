@@ -67,6 +67,7 @@ console.log(`User: ${config.proxmox.user}  Token: ${config.proxmox.tokenId}`);
 console.log(`Node: ${config.proxmox.node || "(unset)"}  Storage: ${config.proxmox.storage}`);
 console.log(`LXC template: ${config.proxmox.lxcTemplate || "(unset)"}`);
 console.log(`QEMU template: ${config.proxmox.qemuTemplateId || "(unset)"}`);
+console.log(`QEMU GPU template: ${config.proxmox.qemuGpuTemplateId || "(unset — falls back to the QEMU template)"}`);
 console.log("");
 
 await attempt("GET /version", async () => {
@@ -137,6 +138,16 @@ if (config.proxmox.qemuTemplateId) {
   });
 } else {
   warn("PROXMOX_QEMU_TEMPLATE_ID not set — VM (QEMU/GPU/nanoclaw) placement unavailable");
+}
+
+if (config.proxmox.qemuGpuTemplateId) {
+  await attempt(`QEMU GPU template ${config.proxmox.qemuGpuTemplateId}`, async () => {
+    const guests = await listClusterGuests();
+    const template = guests.find((g) => g.vmid === config.proxmox.qemuGpuTemplateId);
+    if (!template) throw new Error(`VM ${config.proxmox.qemuGpuTemplateId} not found`);
+    if (template.template !== 1) throw new Error(`VM ${config.proxmox.qemuGpuTemplateId} is not a template`);
+    ok(`QEMU GPU template ${templateIdLabel(template.vmid)} on ${template.node}`);
+  });
 }
 
 await attempt("nextid + VMID allocation dry-run", async () => {

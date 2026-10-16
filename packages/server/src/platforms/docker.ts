@@ -1,5 +1,5 @@
 import Docker from "dockerode";
-import { dockerGpuCount } from "./hardware.js";
+import { dockerGpuCount, gpuDeviceRequests } from "./hardware.js";
 import fs from "fs";
 import net from "net";
 import type { AgentConfig, AgentType, DockerImage, DockerStatus } from "@devlet/shared";
@@ -29,6 +29,22 @@ export const AGENT_IMAGE: Record<AgentType, string> = {
   // Proxmox-only — placeholder until Proxmox provisioning is implemented
   "nemoclaw":    process.env["AGENT_IMAGE_NEMOCLAW"]    || "node:22.23.3-slim",
 };
+
+/** Coding-agent types served by the shared base image. */
+const BASE_IMAGE_TYPES: readonly string[] = ["claude-code", "codex", "opencode", "pi", "gemini"];
+
+/**
+ * Image for an agent, honouring GPU requirements: base coding agents hired
+ * with gpu.required get the GPU layer image (docs/gpu-agents.md). Gateway
+ * agents keep their own images — the GPU layer exists only for the base.
+ */
+export function agentImageFor(config: AgentConfig): string {
+  if (config.gpu?.required && BASE_IMAGE_TYPES.includes(config.type)) {
+    // `||` not `??`: docker-compose passes unset overrides as empty strings.
+    return process.env["AGENT_IMAGE_GPU"] || "ghcr.io/kjw3/devlet-agent-gpu:latest";
+  }
+  return AGENT_IMAGE[config.type];
+}
 
 /** Probe a TCP port on 0.0.0.0 to see if it is available on the host. */
 function isPortFree(port: number): Promise<boolean> {
@@ -240,7 +256,7 @@ export async function createAgentContainer(config: AgentConfig): Promise<string>
       ? createDocker(config.platform.socketPath)
       : createDocker();
 
-  const image = AGENT_IMAGE[config.type];
+  const image = agentImageFor(config);
   const containerName = `devlet-${config.id}`;
   await ensureImage(docker, image);
 
@@ -309,6 +325,9 @@ export async function createAgentContainer(config: AgentConfig): Promise<string>
       NanoCpus: Math.round(config.resources.cpus * 1e9),
       Memory: config.resources.memoryMb * 1024 * 1024,
       PortBindings,
+      // `docker run --gpus all` equivalent — without this the container never
+      // sees the GPU, even on hosts with the NVIDIA runtime.
+      ...(config.gpu?.required ? { DeviceRequests: gpuDeviceRequests() } : {}),
       RestartPolicy: {
         Name: config.persistent ? "unless-stopped" : "no",
       },

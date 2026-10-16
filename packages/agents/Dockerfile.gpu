@@ -1,0 +1,65 @@
+# ── devlet/agent-gpu ──────────────────────────────────────────────────────────
+# GPU-capable layer above the base coding-agent image.
+#
+# Built for agents hired with gpu.required (see docs/gpu-agents.md). Keeps the
+# default image slim: CUDA userland costs ~1–2 GB and non-GPU hosts never pull
+# this tag.
+#
+# The NVIDIA driver itself is never baked in — nvidia-container-toolkit injects
+# the host driver userland (libcuda.so.1, nvidia-smi) at container start. What
+# this layer adds:
+#   - explicit NVIDIA env (not dependent on toolkit defaults)
+#   - CUDA runtime userland for binaries that don't bundle their own
+#     (framework wheels like torch bundle CUDA and need none of this)
+#   - devlet-gpu-check: one-line GPU status in the agent log
+#
+# Build args:
+#   BASE_AGENT_IMAGE — the base image to layer on (CI pins it to the sha tag)
+#   CUDA_VERSION     — CUDA runtime package suffix (debian12 repo), x86_64 only
+# ──────────────────────────────────────────────────────────────────────────────
+
+ARG BASE_AGENT_IMAGE=ghcr.io/kjw3/devlet-agent-base:latest
+FROM ${BASE_AGENT_IMAGE}
+
+ARG CUDA_VERSION=12-4
+ARG VCS_REF=unknown
+ARG BUILD_DATE=unknown
+ARG VERSION=0.1.0
+ARG REPOSITORY_URL=https://github.com/kjw3/devlet
+
+ENV NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+USER root
+
+# CUDA runtime userland (x86_64 only — NVIDIA's debian12 repo covers arm64
+# poorly for desktop parts, and arm64 agent hosts get the driver userland via
+# toolkit injection anyway). Deliberately the minimal `cuda-cudart` (libcudart
+# only, ~40 MB): framework wheels (torch, jax) bundle their own CUDA libs, so
+# the full cuda-runtime meta-package (cuBLAS/cuFFT/…, ~4 GB) is dead weight
+# here. Bump CUDA_VERSION's package to `cuda-runtime-${CUDA_VERSION}` if an
+# agent needs the full userland preinstalled.
+RUN set -eux; \
+    if [ "$(uname -m)" = "x86_64" ]; then \
+      curl -fsSL --retry 10 --retry-delay 2 --retry-all-errors \
+        "https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb" \
+        -o /tmp/cuda-keyring.deb; \
+      dpkg -i /tmp/cuda-keyring.deb; \
+      rm -f /tmp/cuda-keyring.deb; \
+      apt-get update; \
+      apt-get install -y --no-install-recommends "cuda-cudart-${CUDA_VERSION}"; \
+      rm -rf /var/lib/apt/lists/*; \
+    fi
+
+COPY packages/agents/devlet-gpu-check.sh /usr/local/bin/devlet-gpu-check
+RUN chmod +x /usr/local/bin/devlet-gpu-check
+
+USER agent
+
+LABEL org.opencontainers.image.title="devlet-agent-gpu"
+LABEL org.opencontainers.image.description="GPU layer above devlet-agent-base: NVIDIA env + CUDA runtime + GPU probe"
+LABEL org.opencontainers.image.source="${REPOSITORY_URL}"
+LABEL org.opencontainers.image.revision="${VCS_REF}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL devlet.agent.type="gpu"

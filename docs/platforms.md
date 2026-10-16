@@ -1,5 +1,11 @@
 # Platform notes
 
+GPU assignment per platform is covered in [docs/gpu-agents.md](gpu-agents.md):
+gpu-required coding agents run the `devlet-agent-gpu` image (NVIDIA env + CUDA
+runtime layered on the base image), container platforms request GPUs via
+`HostConfig.DeviceRequests` (`--gpus all`), and Proxmox passes the PCI device
+through to a QEMU guest.
+
 ## Komodo
 
 Devlet places agents on Komodo servers through the Komodo API and needs to know two things about
@@ -38,17 +44,25 @@ A server is tagged as a GPU node when `nvidia-smi -L` lists a device:
 Results are cached for five minutes. The first scan after a Devlet restart can take ~10–15 seconds
 while `busybox` / `debian:12-slim` are pulled onto the hosts that need them.
 
+GPU-required agents are deployed with `--gpus all` (container passthrough) and the
+`devlet-agent-gpu` image; the target server needs the NVIDIA driver and
+`nvidia-container-toolkit`.
+
 ## Portainer
 
 Endpoints are discovered from the Portainer API. Agent ports are published on `0.0.0.0` of the
-endpoint's Docker host and reached through the endpoint's address.
+endpoint's Docker host and reached through the endpoint's address. GPU-required agents set
+`HostConfig.DeviceRequests` on the endpoint's Docker API (identical to the local Docker
+platform); endpoint hosts need the NVIDIA driver + `nvidia-container-toolkit`.
 
 ## Docker (local)
 
 Opt-in: add `docker-compose.local-docker.yml` to mount the host Docker socket into the Devlet server
 (omit it on a production control plane that places agents through Komodo or Portainer). Agents then run on that socket. Published ports bind to loopback on
 the Docker host and the server proxies to them via `DEVLET_DOCKER_PROXY_HOST`
-(default `host.docker.internal`).
+(default `host.docker.internal`). GPU-required agents request all NVIDIA GPUs via
+`HostConfig.DeviceRequests` (`--gpus all`); the host needs the NVIDIA driver +
+`nvidia-container-toolkit`.
 
 ## Proxmox
 
@@ -81,7 +95,11 @@ implementation plan, permissions and template preparation):
   (`PROXMOX_ROOT_USER`/`PROXMOX_ROOT_TOKEN_ID`/`PROXMOX_ROOT_TOKEN_SECRET`, created via
   `pveum user token add root@pam devlet-gpu --privsep 0`). It is used solely for that
   config step; all other calls stay least-privileged. The hosts also need IOMMU enabled
-  (`intel_iommu=on`/`amd_iommu=on` + `iommu=pt`, vfio modules).
+  (`intel_iommu=on`/`amd_iommu=on` + `iommu=pt`, vfio modules). The guest itself needs
+  the NVIDIA driver — use a GPU QEMU template (`PROXMOX_QEMU_GPU_TEMPLATE_ID`, recipe in
+  [docs/gpu-agents.md](gpu-agents.md)); the bootstrap installs
+  `nvidia-container-toolkit` in the guest and starts the agent container with
+  `--gpus all`, failing clearly when the guest has no usable GPU.
 - **Access.** The terminal proxy and SSH commands target the guest's IP (LXC interfaces
   API / qemu-guest-agent), with the same automatic tailnet fallback as Komodo agents.
 - **Lifecycle.** Fire destroys the guest; persistent agents are restarted by the

@@ -1,6 +1,7 @@
 import type { AgentConfig } from "@devlet/shared";
 import { config as appConfig } from "../config.js";
-import { AGENT_IMAGE, parseDockerLogBuffer } from "./docker.js";
+import { agentImageFor, parseDockerLogBuffer } from "./docker.js";
+import { gpuDeviceRequests } from "./hardware.js";
 import { buildContainerEnv } from "./env.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -116,7 +117,7 @@ export async function createPortainerContainer(
   agentConfig: AgentConfig,
   endpointId: number
 ): Promise<string> {
-  const image = AGENT_IMAGE[agentConfig.type];
+  const image = agentImageFor(agentConfig);
   const containerName = `devlet-${agentConfig.id}`;
 
   await pullImage(endpointId, image);
@@ -183,6 +184,10 @@ export async function createPortainerContainer(
           NanoCpus: Math.round(agentConfig.resources.cpus * 1e9),
           Memory: agentConfig.resources.memoryMb * 1024 * 1024,
           PortBindings,
+          // Same Engine-API GPU request as the local Docker platform
+          // (`docker run --gpus all`); requires nvidia-container-toolkit on
+          // the endpoint host.
+          ...(agentConfig.gpu?.required ? { DeviceRequests: gpuDeviceRequests() } : {}),
           RestartPolicy: {
             Name: agentConfig.persistent ? "unless-stopped" : "no",
           },

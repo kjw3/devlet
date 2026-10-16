@@ -102,7 +102,11 @@ into agent env: `DEVLET_TERMINAL_PORT=7681`, `DEVLET_SSH_PORT=2222`, plus type-s
 (OVMF) and GPU passthrough (`hostpci0`); cloning inherits it. Optional
 `PROXMOX_GPU_PCI_ID` overrides/sets `hostpci0` at clone time for templates without it.
 `gpuCount` detection reads `/nodes/{node}/hardware/pci` and counts VGA/3D-class devices,
-feeding the existing scheduler logic unchanged.
+feeding the existing scheduler logic unchanged. GPU hires additionally clone the optional
+`PROXMOX_QEMU_GPU_TEMPLATE_ID` (a copy of the main template with the NVIDIA driver
+installed inside) instead of the main template, and the guest bootstrap installs
+`nvidia-container-toolkit` and runs the agent container with `--gpus all` (recipe:
+[docs/gpu-agents.md](gpu-agents.md)).
 
 **D7 — Auth minimal privileges.** Dedicated PVE user `devlet@pam` with an API token
 ("privilege separation" on) holding, scoped to the target pool/storage: `PVEVMAdmin`,
@@ -122,7 +126,7 @@ otherwise. nanoclaw is never offered when no QEMU/LXC template is configured.
   UPID task polling with timeout and error extraction, `cluster/nextid`, storage-content
   and guest-listing reads, guest IP resolution (D5), and PCI device listing (D6).
 - **R2 (config).** Server parses `PROXMOX_NODE`, `PROXMOX_STORAGE` (default `local-lvm`),
-  `PROXMOX_LXC_TEMPLATE`, `PROXMOX_QEMU_TEMPLATE_ID`; `.env.example`/compose already
+  `PROXMOX_LXC_TEMPLATE`, `PROXMOX_QEMU_TEMPLATE_ID`, `PROXMOX_QEMU_GPU_TEMPLATE_ID`; `.env.example`/compose already
   carry them. Boot probes log which Proxmox features are unusable and why.
 - **R3 (provision).** LXC create + QEMU full-clone paths, resource mapping
   (`resources.cpus` → cores, `resources.memoryMb` → memory MiB, `storageMb` → rootfs

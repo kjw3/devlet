@@ -2,7 +2,7 @@ import { getResourceMinimum, templateDiskGb, type AgentConfig } from "@devlet/sh
 import { randomBytes } from "node:crypto";
 import { inspectGuestRuntime } from "./proxmox-runtime.js";
 import { config } from "../config.js";
-import { AGENT_IMAGE } from "./docker.js";
+import { agentImageFor } from "./docker.js";
 import { buildContainerEnv } from "./env.js";
 import {
   allocateVmid,
@@ -135,10 +135,19 @@ async function resizeQemuRootDisk(
 // ─── Bootstrap script (D1) ─────────────────────────────────────────────────────
 
 export async function buildBootstrapScript(agentConfig: AgentConfig): Promise<string> {
-  const image = AGENT_IMAGE[agentConfig.type];
+  const image = agentImageFor(agentConfig);
   const ports = guestPortMappings(agentConfig)
     .map((p) => `-p ${p}`)
     .join(" ");
+
+  // GPU guests: the passthrough GPU is only usable when the guest's Docker can
+  // hand it to containers — install the NVIDIA container toolkit and run the
+  // agent with --gpus all. The host kernel driver itself comes from the GPU
+  // QEMU template (docs/gpu-agents.md); fail loudly when it is missing.
+  const gpuGuest =
+    agentConfig.platform.type === "proxmox" &&
+    agentConfig.platform.vmType === "qemu" &&
+    Boolean(agentConfig.gpu?.required);
 
   // Docker `-e` args (values single-quoted; newlines and special chars survive).
   const env = await buildContainerEnv(agentConfig);
@@ -198,6 +207,26 @@ for i in $(seq 1 30); do
   sleep 1
 done
 docker info >/dev/null 2>&1 || { echo "[devlet] Docker daemon not ready"; exit 1; }
+${gpuGuest ? `
+# NVIDIA container toolkit — lets the agent container use the passed-through GPU.
+if ! command -v nvidia-ctk >/dev/null 2>&1; then
+  echo "[devlet] installing NVIDIA container toolkit..."
+  apt-get update -qq
+  apt-get install -y -qq gpg curl >/dev/null
+  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+  curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \\
+    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \\
+    > /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  apt-get update -qq
+  apt-get install -y -qq nvidia-container-toolkit >/dev/null
+  nvidia-ctk runtime configure --runtime=docker
+  systemctl restart docker
+fi
+if ! nvidia-smi -L >/dev/null 2>&1; then
+  echo "[devlet] no NVIDIA GPU visible inside guest — the QEMU template lacks the NVIDIA driver (docs/gpu-agents.md)"
+  exit 1
+fi
+` : ""}
 
 # An existing container (even exited) means the task was already launched.
 # Never delete its workspace or rerun a completed single task during recovery.
@@ -212,6 +241,7 @@ docker pull ${shellQuote(image)}
 echo "[devlet] starting agent container"
 docker run -d --name devlet-agent \\
   --restart ${restartPolicy} \\
+  ${gpuGuest ? "--gpus all \\\n" : ""}\
   ${envArgs} \\
   ${ports} \\
   ${shellQuote(image)}
@@ -436,9 +466,9 @@ async function createLxcGuest(
  */
 export async function resolveQemuCloneStorage(
   templateNode: string,
-  targetNode: string
+  targetNode: string,
+  templateId = config.proxmox.qemuTemplateId
 ): Promise<{ storage: string; linked: boolean }> {
-  const templateId = config.proxmox.qemuTemplateId;
 
   let templateDiskStorage = "";
   let templateDiskShared = false;
@@ -491,9 +521,19 @@ async function createQemuGuest(
   markCreated: () => void
 ): Promise<void> {
   const { cores, memoryMb, diskGb } = guestResources(agentConfig);
-  const templateId = config.proxmox.qemuTemplateId;
+  // GPU hires clone the dedicated GPU template (NVIDIA driver baked in) when
+  // one is configured; everything else uses the standard QEMU template.
+  const templateId =
+    agentConfig.gpu?.required && config.proxmox.qemuGpuTemplateId
+      ? config.proxmox.qemuGpuTemplateId
+      : config.proxmox.qemuTemplateId;
   if (!templateId) {
-    throw new Error("PROXMOX_QEMU_TEMPLATE_ID is not set — cannot create a QEMU agent");
+    throw new Error(
+      agentConfig.gpu?.required && !config.proxmox.qemuGpuTemplateId
+        ? "PROXMOX_QEMU_TEMPLATE_ID is not set — cannot create a QEMU agent " +
+          "(for GPU agents, PROXMOX_QEMU_GPU_TEMPLATE_ID is recommended — docs/gpu-agents.md)"
+        : "PROXMOX_QEMU_TEMPLATE_ID is not set — cannot create a QEMU agent"
+    );
   }
 
   const templateNode = await findTemplateNode(templateId);
@@ -504,7 +544,7 @@ async function createQemuGuest(
   // Cross-node clones cannot write to node-local storage ("can't clone to
   // non-shared storage"): resolve a storage that works for the target node.
   // Linked clones (same storage as the template, shared) skip the disk copy.
-  const { storage: cloneStorage, linked } = await resolveQemuCloneStorage(templateNode, node);
+  const { storage: cloneStorage, linked } = await resolveQemuCloneStorage(templateNode, node, templateId);
 
   const name = devletGuestName(agentConfig.id);
   try {

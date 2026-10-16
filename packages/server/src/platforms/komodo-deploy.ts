@@ -1,6 +1,6 @@
 import { Types } from "komodo_client";
 import type { AgentConfig } from "@devlet/shared";
-import { AGENT_IMAGE } from "./docker.js";
+import { agentImageFor } from "./docker.js";
 import { buildContainerEnv } from "./env.js";
 import { getKomodoClient, type Komodo } from "./komodo-client.js";
 import { listAgentStates } from "../agents/state.js";
@@ -176,7 +176,7 @@ export async function createKomodoContainer(agentConfig: AgentConfig, serverId: 
     name,
     config: {
       server_id: serverId,
-      image: { type: "Image", params: { image: AGENT_IMAGE[agentConfig.type] } },
+      image: { type: "Image", params: { image: agentImageFor(agentConfig) } },
       environment: env,
       network: "bridge",
       ...(ports ? { ports } : {}),

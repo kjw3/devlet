@@ -22,6 +22,8 @@ Pinned as of 2026-10-13:
 | `tailscale/tailscale` image (server build, binaries copied) | `v1.102.4` | Docker Hub official image; keep in step with the agent-base pin |
 | `busybox` (runtime helper) | `1.37` | Run by Devlet on Komodo hosts to read the host LAN address (`packages/server/src/platforms/komodo.ts`) |
 | `debian` (runtime helper) | `12-slim` | Run by Devlet on NVIDIA-capable Komodo hosts to query GPUs via `nvidia-smi` (same file) |
+| CUDA keyring (`cuda-keyring_1.1-1_all.deb`) | `1.1-1` | NVIDIA's Debian 12 CUDA repo (`Dockerfile.gpu`); latest `all-arch` keyring is stable |
+| `cuda-cudart` (GPU agent image) | `12-4` (12.4.127) | NVIDIA CUDA repo; Pascal (e.g. GT 1030) is supported up to CUDA 12.x |
 | `tmux` | Debian package | apt |
 | `ghcr.io/astral-sh/uv` | `0.13.0` | upstream Git tags |
 | `NousResearch/hermes-agent` | `v2026.9.24` | upstream Git tags |

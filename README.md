@@ -56,7 +56,7 @@ Devlet provides:
 | Docker | Local Docker socket (opt-in via `docker-compose.local-docker.yml`). |
 | Portainer | Endpoints discovered from the Portainer API; GPU info comes from endpoint snapshots. |
 | Komodo | Servers discovered from Komodo. Devlet detects each server's LAN address and NVIDIA GPUs by itself, even when Komodo's agent runs in a container (see [Komodo notes](docs/platforms.md#komodo)). |
-| Proxmox | Placement/discovery only; provisioning is not implemented yet. |
+| Proxmox | Full deployment platform: one LXC or QEMU guest per agent (see [Proxmox notes](docs/platforms.md#proxmox)); GPU-required hires get PCI passthrough ([docs/gpu-agents.md](docs/gpu-agents.md)). |
 
 ### Reaching an agent
 

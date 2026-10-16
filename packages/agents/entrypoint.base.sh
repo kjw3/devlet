@@ -27,6 +27,11 @@ fi
 
 echo "[devlet] agent-type=$AGENT_TYPE provider=$PROVIDER persistent=$PERSISTENT mission=${MISSION:+(set)}"
 
+# GPU probe — one line in the agent log (only present in the GPU image layer).
+if [ -x /usr/local/bin/devlet-gpu-check ]; then
+  /usr/local/bin/devlet-gpu-check || true
+fi
+
 # Git identity — required for any agent that commits code
 git config --global user.email "agent@devlet" 2>/dev/null || true
 git config --global user.name "Devlet Agent" 2>/dev/null || true

@@ -14,3 +14,22 @@ export function parseNvidiaInventory(output: string) {
   const devices = [...output.matchAll(/GPU (\d+):\s*([^\r\n]+?)\s*\(UUID:/g)];
   return { gpuCount: new Set(devices.map(d => d[1])).size, gpuModel: devices[0]?.[2] };
 }
+
+/**
+ * HostConfig.DeviceRequests requesting every NVIDIA GPU — the Engine-API
+ * equivalent of `docker run --gpus all`. Count -1 means "all devices".
+ * Per-GPU selection (DeviceIDs) is future work (docs/gpu-agents.md).
+ */
+export function gpuDeviceRequests(): Array<{
+  Driver: string;
+  Count: number;
+  Capabilities: string[][];
+  Options: Record<string, string>;
+}> {
+  return [{
+    Driver: "nvidia",
+    Count: -1,
+    Capabilities: [["gpu", "compute", "utility"]],
+    Options: {},
+  }];
+}

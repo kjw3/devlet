@@ -36,6 +36,7 @@ jobs:
       contents: read
     outputs:
       agent_base: ${{ steps.filter.outputs.agent_base }}
+      agent_gpu: ${{ steps.filter.outputs.agent_gpu }}
       openclaw: ${{ steps.filter.outputs.openclaw }}
       nanoclaw: ${{ steps.filter.outputs.nanoclaw }}
       hermes: ${{ steps.filter.outputs.hermes }}
@@ -59,6 +60,21 @@ jobs:
               - 'pnpm-workspace.yaml'
               - 'tsconfig.base.json'
               - 'packages/agents/Dockerfile.base'
+              - 'packages/agents/entrypoint.base.sh'
+              - 'packages/agents/devlet-*.sh'
+              - 'packages/agents/devlet-*.py'
+              - 'packages/server/src/platforms/env.ts'
+              - 'packages/shared/**'
+            agent_gpu:
+              - '.github/workflows/publish-ghcr.yml'
+              - 'docker-compose.yml'
+              - 'docker-compose.dev.yml'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'tsconfig.base.json'
+              - 'packages/agents/Dockerfile.base'
+              - 'packages/agents/Dockerfile.gpu'
               - 'packages/agents/entrypoint.base.sh'
               - 'packages/agents/devlet-*.sh'
               - 'packages/agents/devlet-*.py'
@@ -198,7 +214,7 @@ jobs:
             REPOSITORY_URL=${{ github.server_url }}/${{ github.repository }}
 
   build-derived-agents:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || needs.detect-changes.outputs.openclaw == 'true' || needs.detect-changes.outputs.nanoclaw == 'true' || needs.detect-changes.outputs.hermes == 'true' || needs.detect-changes.outputs.moltis == 'true' || needs.detect-changes.outputs.agent_base == 'true'
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || needs.detect-changes.outputs.openclaw == 'true' || needs.detect-changes.outputs.nanoclaw == 'true' || needs.detect-changes.outputs.hermes == 'true' || needs.detect-changes.outputs.moltis == 'true' || needs.detect-changes.outputs.agent_base == 'true' || needs.detect-changes.outputs.agent_gpu == 'true'
     runs-on: ubuntu-latest
     needs: [detect-changes, build-agent-base]
     permissions:
@@ -210,6 +226,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: gpu
+            dockerfile: packages/agents/Dockerfile.gpu
+            image: devlet-agent-gpu
+            filter: agent_gpu
           - name: openclaw
             dockerfile: packages/agents/Dockerfile.openclaw
             image: devlet-agent-openclaw
