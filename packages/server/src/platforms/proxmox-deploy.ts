@@ -688,7 +688,14 @@ async function createQemuGuest(
       });
       const allMapped = mappedNames.every((name): name is string => name !== null);
       for (const [i, [slot]] of buildHostpciEntries(gpuIds).entries()) {
-        configUpdate[slot] = allMapped ? `mapping=${mappedNames[i]!},pcie=1` : `${gpuIds[i]!},pcie=1`;
+        // rombar=0: headless compute VMs never execute the GPU's option ROM,
+        // and an enabled ROM BAR intermittently wedges guest firmware on this
+        // cluster (guest never reaches userspace; qemu-guest-agent never
+        // connects — seen live on pc2). The historically working gpu2 config
+        // also disabled it.
+        configUpdate[slot] = allMapped
+          ? `mapping=${mappedNames[i]!},pcie=1,rombar=0`
+          : `${gpuIds[i]!},pcie=1,rombar=0`;
       }
     }
 
