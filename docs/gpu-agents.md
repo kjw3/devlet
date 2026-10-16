@@ -117,14 +117,27 @@ first free GPU (or `PROXMOX_GPU_PCI_ID`). Two guest-side requirements remain:
 ```bash
 # In the template VM (Debian 12/Ubuntu 22.04+), after Docker + qemu-guest-agent:
 apt-get install -y build-essential linux-headers-$(uname -r)
-# NVIDIA driver — from the distro repo or NVIDIA's .run file; noveau must be blacklisted
+# NVIDIA driver — from the distro repo or NVIDIA's .run file; noveau must be blacklisted.
+# Driver must be >= 550 for the CUDA 12.4 stack baked into devlet-agent-gpu
+# (validated on 580.178.04); Debian 12 needs bookworm-backports for that.
 apt-get install -y nvidia-driver firmware-misc-nonfree   # Debian
+# Load the CUDA data-plane module at boot — nvidia-smi works without it, but
+# every container allocation fails if it is missing in a cloned guest.
+echo nvidia-uvm > /etc/modules-load.d/nvidia-uvm.conf
 nvidia-smi                                               # must list the GPU
-# Reboot once, verify the module survives, then convert to a template.
+# Reboot once, verify the module survives (lsmod | grep nvidia_uvm), then
+# convert to a template.
 ```
 
 Set `PROXMOX_QEMU_GPU_TEMPLATE_ID` to that template's ID. Devlet clones it for
-GPU hires; the bootstrap handles the toolkit + `--gpus all`.
+GPU hires; the bootstrap handles the toolkit + `--gpus all` (and best-effort
+`modprobe nvidia_uvm`).
+
+No template rebuild is needed for compute-stack updates (PyTorch, nvcc, the
+probes): those live in the `devlet-agent-gpu` image and are pulled per hire.
+The template only owns the kernel driver. GPU QEMU hires require a **32 GB
+disk minimum** (the GPU image is ~8.5 GB and the pull+unpack peak is ~13 GB
+in `/var/lib/docker`); the hire wizard enforces this automatically.
 
 ## Verification runbook
 
@@ -159,8 +172,12 @@ exists, repeat the Docker checks through Portainer.
    so the PCI device becomes free again.
 2. Confirm the hire preview offers the node, and the hire completes with
    `hostpci0` set (`qm config <vmid>`).
-3. In the guest: `nvidia-smi` (template driver), then the agent container's
-   `nvidia-smi` (toolkit + `--gpus all`).
+3. In the guest: `nvidia-smi` (template driver) and `lsmod | grep nvidia_uvm`
+   (data-plane module; the bootstrap also loads it best-effort), then the
+   agent container's `nvidia-smi` (toolkit + `--gpus all`).
+4. The agent startup log must show `[devlet] gpu: compute OK (context, alloc,
+   copy, JIT kernel)` — identical to the Komodo check, since the same image
+   runs inside the guest.
 
 ## Per-GPU selection (hire wizard)
 

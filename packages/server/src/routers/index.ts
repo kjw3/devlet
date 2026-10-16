@@ -884,7 +884,9 @@ export const appRouter = t.router({
   }),
 
   platforms: t.router({
-    diskCapacity: authProcedure.input(PlatformTargetSchema).query(({ input }) => getDiskCapacity(normalizePlatformTarget(input))),
+    diskCapacity: authProcedure
+      .input(z.object({ platform: PlatformTargetSchema, gpuRequired: z.boolean().optional() }))
+      .query(({ input }) => getDiskCapacity(normalizePlatformTarget(input.platform), undefined, input.gpuRequired)),
     docker: t.router({
       status: authProcedure.query(async () => probeDocker()),
       images: authProcedure.query(async () => listImages()),

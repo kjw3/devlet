@@ -238,6 +238,12 @@ if ! nvidia-smi -L >/dev/null 2>&1; then
   echo "[devlet] no NVIDIA GPU visible inside guest — the QEMU template lacks the NVIDIA driver (docs/gpu-agents.md)"
   exit 1
 fi
+# The CUDA data plane needs the nvidia_uvm module (nvidia-smi works without
+# it, but every allocation fails). Modules usually autoload lazily via
+# nvidia-modprobe; load it at guest level so the first container CUDA call
+# never races that. Best-effort: a missing module surfaces in the container's
+# startup probe instead of failing the bootstrap.
+modprobe nvidia_uvm 2>/dev/null || true
 ` : ""}
 
 # An existing container (even exited) means the task was already launched.
@@ -741,7 +747,7 @@ export async function createProxmoxGuest(agentConfig: AgentConfig, recoveringPro
   // Recheck current free space immediately before allocation. Existing guests
   // bypass this: recovery must not attempt to resize an already-running disk.
   const { validateDisk } = await import("./disk.js");
-  const storageMb = await validateDisk(agentConfig.platform, agentConfig.resources.storageMb, agentConfig.id);
+  const storageMb = await validateDisk(agentConfig.platform, agentConfig.resources.storageMb, agentConfig.id, Boolean(agentConfig.gpu?.required));
   if (storageMb !== undefined) agentConfig.resources.storageMb = storageMb;
 
   let created = false;

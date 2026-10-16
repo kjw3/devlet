@@ -5,7 +5,7 @@ let admission: Promise<unknown> = Promise.resolve();
 /** Serialize validation + persisted reservation within the single server process. */
 export function admitAgent(state: AgentState, deps = { validate: validateDisk, save: saveAgentState }): Promise<void> {
   const job = admission.catch(() => {}).then(async () => {
-    const storageMb = await deps.validate(state.config.platform, state.config.resources.storageMb);
+    const storageMb = await deps.validate(state.config.platform, state.config.resources.storageMb, undefined, Boolean(state.config.gpu?.required));
     if (storageMb !== undefined) state.config.resources.storageMb = storageMb;
     await deps.save(state);
   });

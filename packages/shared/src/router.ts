@@ -106,7 +106,9 @@ export const appRouter = router({
   }),
 
   platforms: router({
-    diskCapacity: publicProcedure.input(PlatformTargetSchema).query(unimplemented as () => DiskCapacity),
+    diskCapacity: publicProcedure
+      .input(z.object({ platform: PlatformTargetSchema, gpuRequired: z.boolean().optional() }))
+      .query(unimplemented as () => DiskCapacity),
     docker: router({
       status: publicProcedure.query(unimplemented as () => DockerStatus),
       images: publicProcedure.query(unimplemented as () => DockerImage[]),

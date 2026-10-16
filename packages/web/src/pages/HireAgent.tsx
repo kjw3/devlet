@@ -370,9 +370,10 @@ export function HireAgent() {
       : [...form.gpuDevices, id]);
   }
 
-  const diskQuery = trpcInventory.platforms.diskCapacity.useQuery(resolvedPlatform ?? { type: "docker" }, {
-    enabled: !!resolvedPlatform, refetchInterval: 10_000, staleTime: 5_000,
-  });
+  const diskQuery = trpcInventory.platforms.diskCapacity.useQuery(
+    { platform: resolvedPlatform ?? { type: "docker" }, gpuRequired: form.gpuRequired },
+    { enabled: !!resolvedPlatform, refetchInterval: 10_000, staleTime: 5_000 },
+  );
   const diskCapacity = diskQuery.data;
   const diskMinimum = diskCapacity?.minimumGb ?? 10;
   useEffect(() => {
