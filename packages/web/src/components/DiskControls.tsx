@@ -9,6 +9,7 @@ export function DiskControls({ gb, capacity, loading, error, onChange }: {
         value={gb} onChange={e => onChange(Number(e.target.value))}
         className="bg-surface border border-surface-border rounded-sm px-3 py-2 text-[13px] text-gray-100" />
       <p className="text-[11px] text-gray-500 mt-1">Minimum {capacity.minimumGb} GB · Maximum {capacity.maximumGb ?? "unknown"} GB</p>
+      <p className="text-[11px] text-gray-500">Per-agent ceiling: {capacity.policyMaximumGb ?? 100} GB</p>
       <p className="text-[11px] text-gray-500">Storage: {capacity.storage ?? "unknown"} · Free: {capacity.availableGb ?? "unknown"} GB · Reserve: {capacity.reserveGb ?? "unknown"} GB</p>
       <p className="text-[10px] text-gray-600">Includes OS, Docker, images, and workspace. 1 GB = 1,024 MB. Maximum excludes safety reserves and pending hires; shared storage usage can change.</p>
     </> : <p className="text-[11px] text-gray-500">{loading ? "Checking disk capacity…" : capacity?.reason ?? "Select a host to check disk capacity."}</p>}

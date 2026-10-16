@@ -1,4 +1,4 @@
-import { diskMaximumGb, diskSizeError, templateDiskGb, type DiskCapacity, type PlatformTarget } from "@devlet/shared";
+import { agentDiskMaximumGb, diskMaximumGb, diskSizeError, templateDiskGb, type DiskCapacity, type PlatformTarget } from "@devlet/shared";
 import { config } from "../config.js";
 import { listAgentStates } from "../agents/state.js";
 import { getStorageInfo, pveGet } from "./proxmox-client.js";
@@ -21,7 +21,8 @@ async function storageTarget(target: PlatformTarget) {
 }
 
 export async function getDiskCapacity(target: PlatformTarget, excludeAgentId?: string): Promise<DiskCapacity> {
-  if (target.type !== "proxmox") return { supported: false, minimumGb: 10, reason: "Disk limits unavailable: this Docker backend has no verified quota configuration. Shared image layers and writable storage use host space." };
+  const policyMaximumGb = agentDiskMaximumGb(process.env["DEVLET_AGENT_DISK_MAX_GB"]);
+  if (target.type !== "proxmox") return { supported: false, minimumGb: 10, policyMaximumGb, reason: "Disk limits unavailable: this Docker backend has no verified quota configuration. Shared image layers and writable storage use host space." };
   const minimumGb = target.vmType === "qemu" ? 20 : 10;
   try {
     const selected = await storageTarget(target);
@@ -37,9 +38,9 @@ export async function getDiskCapacity(target: PlatformTarget, excludeAgentId?: s
       const pending = await storageTarget(state.config.platform);
       if (pending.poolKey === selected.poolKey) pendingGb += (state.config.resources.storageMb ?? pending.minimumGb * 1024) / 1024;
     }
-    return { supported: true, ...selected, availableGb: Math.floor(status.avail! / 1024 ** 3), reserveGb, maximumGb: diskMaximumGb(status.avail!, reserveGb, pendingGb) };
+    return { supported: true, ...selected, availableGb: Math.floor(status.avail! / 1024 ** 3), reserveGb, policyMaximumGb, maximumGb: diskMaximumGb(status.avail!, reserveGb, pendingGb, policyMaximumGb) };
   } catch (error) {
-    return { supported: true, minimumGb, reason: error instanceof Error ? error.message : "Disk capacity unavailable" };
+    return { supported: true, minimumGb, policyMaximumGb, reason: error instanceof Error ? error.message : "Disk capacity unavailable" };
   }
 }
 

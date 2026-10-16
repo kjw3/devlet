@@ -50,7 +50,9 @@ while any agent is provisioning; this preflight is not an atomic deployment lock
 LXC requires 10 GB; QEMU requires at least 20 GB or the template root-disk size,
 whichever is larger. The capacity endpoint resolves the actual rootfs/clone
 storage and reads its current available bytes. The maximum subtracts
-`DEVLET_DISK_RESERVE_GB` (default 10 GB) and persisted provisioning reservations.
+`DEVLET_DISK_RESERVE_GB` (default 10 GB) and persisted provisioning reservations,
+then caps the result at `DEVLET_AGENT_DISK_MAX_GB` (default 100 GB). Container
+platform quota findings and implementation design: [container-storage.md](container-storage.md).
 Shared storage is keyed by storage ID across nodes. Admission is serialized in
 the single Devlet server process; free space is checked again before creation.
 Unknown capacity blocks provisioning rather than permitting an unlimited disk.

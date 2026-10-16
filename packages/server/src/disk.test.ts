@@ -1,10 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BYTES_PER_GB, diskMaximumGb, diskSizeError, templateDiskGb, HireAgentInputSchema, ResourceLimitsSchema } from "@devlet/shared";
+import { agentDiskMaximumGb, BYTES_PER_GB, diskMaximumGb, diskSizeError, templateDiskGb, HireAgentInputSchema, ResourceLimitsSchema } from "@devlet/shared";
 
 test("free-space maximum floors to whole GB and subtracts reserves and pending hires", () => {
   assert.equal(diskMaximumGb(100.9 * BYTES_PER_GB, 10, 20), 70);
   assert.equal(diskMaximumGb(5 * BYTES_PER_GB, 10), 0);
+});
+test("policy caps even very large shared pools and validates administrator overrides", () => {
+  assert.equal(diskMaximumGb(16000 * BYTES_PER_GB, 10), 100);
+  assert.equal(diskMaximumGb(16000 * BYTES_PER_GB, 10, 0, 200), 200);
+  assert.equal(agentDiskMaximumGb(undefined), 100);
+  assert.equal(agentDiskMaximumGb("200"), 200);
+  for (const value of ["9", "1.5", "NaN", "Infinity", "-1"]) assert.throws(() => agentDiskMaximumGb(value));
+  assert.ok(diskSizeError(101, { supported: true, minimumGb: 10, maximumGb: 1000, policyMaximumGb: 100 }));
 });
 test("disk validation rejects fractional, undersized, oversized, and unknown capacity requests", () => {
   const capacity = { supported: true, minimumGb: 20, maximumGb: 50 };
