@@ -1,8 +1,8 @@
 import Docker from "dockerode";
-import { dockerGpuCount, gpuDeviceRequests } from "./hardware.js";
+import { dockerGpuCount, gpuDeviceRequests, parseNvidiaInventory } from "./hardware.js";
 import fs from "fs";
 import net from "net";
-import type { AgentConfig, AgentType, DockerImage, DockerStatus } from "@devlet/shared";
+import type { AgentConfig, AgentType, DockerImage, DockerStatus, GpuDeviceInfo } from "@devlet/shared";
 import { buildContainerEnv } from "./env.js";
 
 function normalizeArchitecture(value: string | undefined): "amd64" | "arm64" | "unknown" {
@@ -150,6 +150,43 @@ function isDockerConfigured(): boolean {
   return Boolean(process.env["DOCKER_HOST"]) || fs.existsSync("/var/run/docker.sock");
 }
 
+// ─── GPU device enumeration ──────────────────────────────────────────────────
+// nvidia-smi inside a throwaway toolkit container lists the host's GPUs with
+// UUIDs — the same trick the Komodo detection uses. Cached per socket; the
+// probe adds ~1–3 s on GPU hosts (image already pulled after the first scan).
+const GPU_DEVICE_TTL_MS = 5 * 60 * 1000;
+const GPU_PROBE_IMAGE = "debian:12-slim";
+const gpuDeviceCache = new Map<string, { devices: GpuDeviceInfo[]; ts: number }>();
+
+async function probeDockerGpuDevices(docker: Docker, socketKey: string): Promise<GpuDeviceInfo[]> {
+  const cached = gpuDeviceCache.get(socketKey);
+  if (cached && Date.now() - cached.ts < GPU_DEVICE_TTL_MS) return cached.devices;
+
+  const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
+    Promise.race([p, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("gpu probe timeout")), ms))]);
+
+  try {
+    await ensureImage(docker, GPU_PROBE_IMAGE);
+    const container = await docker.createContainer({
+      Image: GPU_PROBE_IMAGE,
+      Cmd: ["nvidia-smi", "-L"],
+      HostConfig: { DeviceRequests: gpuDeviceRequests() },
+    });
+    await container.start();
+    await withTimeout(container.wait(), 30_000);
+    const logs = await container.logs({ stdout: true, stderr: false, follow: false });
+    await container.remove({ force: true }).catch(() => {});
+    const stdout = Buffer.isBuffer(logs) ? logs.toString("utf8") : String(logs ?? "");
+    const devices = /GPU \d+:/i.test(stdout) ? parseNvidiaInventory(stdout).gpuDevices : [];
+    gpuDeviceCache.set(socketKey, { devices, ts: Date.now() });
+    return devices;
+  } catch {
+    // No toolkit / no driver / pull failure — treat as no enumerable GPUs.
+    gpuDeviceCache.set(socketKey, { devices: [], ts: Date.now() });
+    return [];
+  }
+}
+
 export async function probeDocker(): Promise<DockerStatus> {
   if (!isDockerConfigured()) {
     return {
@@ -176,13 +213,19 @@ export async function probeDocker(): Promise<DockerStatus> {
     const total = containers.length;
     const stopped = total - running;
 
+    const gpuAvailable = Boolean(info.Runtimes?.nvidia);
+    const gpuDevices = gpuAvailable
+      ? await probeDockerGpuDevices(docker, process.env["DOCKER_HOST"] ?? "default-socket")
+      : [];
+
     return {
       connected: true,
       observedAt: new Date().toISOString(),
       version: versionInfo.Version,
       containers: { running, stopped, total },
-      gpuAvailable: Boolean(info.Runtimes?.nvidia),
-      gpuCount: dockerGpuCount(info),
+      gpuAvailable,
+      gpuCount: gpuDevices.length || dockerGpuCount(info),
+      ...(gpuDevices.length ? { gpuDevices } : {}),
       architecture: normalizeArchitecture(info.Architecture),
       coreCount: info.NCPU,
       totalMemoryMb: Math.floor(info.MemTotal / 1024 / 1024),
@@ -327,7 +370,7 @@ export async function createAgentContainer(config: AgentConfig): Promise<string>
       PortBindings,
       // `docker run --gpus all` equivalent — without this the container never
       // sees the GPU, even on hosts with the NVIDIA runtime.
-      ...(config.gpu?.required ? { DeviceRequests: gpuDeviceRequests() } : {}),
+      ...(config.gpu?.required ? { DeviceRequests: gpuDeviceRequests(config.gpu.devices) } : {}),
       RestartPolicy: {
         Name: config.persistent ? "unless-stopped" : "no",
       },

@@ -1,6 +1,6 @@
 import { normalizeArchitecture, parseNvidiaInventory } from "./hardware.js";
 import { Types } from "komodo_client";
-import type { KomodoServer, KomodoServerState, KomodoStatus } from "@devlet/shared";
+import type { GpuDeviceInfo, KomodoServer, KomodoServerState, KomodoStatus } from "@devlet/shared";
 import { getKomodoClient, type Komodo } from "./komodo-client.js";
 import { loadEffectivePlatformExclusions } from "./exclusions.js";
 import { config as appConfig } from "../config.js";
@@ -18,7 +18,7 @@ import { config as appConfig } from "../config.js";
 const GPU_TTL_MS = 5 * 60 * 1000;
 const GPU_PROBE_TIMEOUT_MS = 45_000; // first run on a GPU host may pull debian:12-slim
 
-type GpuInfo = { gpuAvailable: boolean; gpuModel?: string; gpuCount?: number };
+type GpuInfo = { gpuAvailable: boolean; gpuModel?: string; gpuCount?: number; gpuDevices?: GpuDeviceInfo[] };
 type GpuCacheEntry = GpuInfo & { ts: number };
 
 const gpuCache = new Map<string, GpuCacheEntry>();
@@ -148,13 +148,19 @@ async function detectGpu(komodo: Komodo, serverName: string): Promise<GpuInfo> {
     return { gpuAvailable: false };
   }
   // First line looks like: "GPU 0: NVIDIA GeForce RTX 4080 (UUID: GPU-...)"
-  return { gpuAvailable: true, ...parseNvidiaInventory(out) };
+  const { gpuCount, gpuModel, gpuDevices } = parseNvidiaInventory(out);
+  return { gpuAvailable: true, gpuCount, gpuModel, gpuDevices };
 }
 
 async function getGpuForServer(komodo: Komodo, serverName: string): Promise<GpuInfo> {
   const cached = gpuCache.get(serverName);
   if (cached && Date.now() - cached.ts < GPU_TTL_MS) {
-    return { gpuAvailable: cached.gpuAvailable, gpuModel: cached.gpuModel, gpuCount: cached.gpuCount };
+    return {
+      gpuAvailable: cached.gpuAvailable,
+      gpuModel: cached.gpuModel,
+      gpuCount: cached.gpuCount,
+      gpuDevices: cached.gpuDevices,
+    };
   }
   const inFlight = gpuInFlight.get(serverName);
   if (inFlight) return inFlight;
@@ -229,6 +235,7 @@ export async function probeKomodo(): Promise<KomodoStatus> {
                 gpuAvailable: gpu.gpuAvailable,
                 ...(gpu.gpuCount !== undefined ? { gpuCount: gpu.gpuCount } : {}),
                 ...(gpu.gpuModel ? { gpuModel: gpu.gpuModel } : {}),
+                ...(gpu.gpuDevices?.length ? { gpuDevices: gpu.gpuDevices } : {}),
               }
             : {}),
           excluded: excludedSet.has(s.name) || excludedSet.has(s.id),

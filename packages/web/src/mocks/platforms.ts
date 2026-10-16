@@ -28,6 +28,7 @@ export const MOCK_PORTAINER_STATUS: PortainerStatus = {
       type: 1,
       status: 1,
       gpuAvailable: true, // remote host has nvidia-container-runtime
+      gpuDevices: [{ id: "GPU-9f2c1a44-1e19-7d6b-3f8e-5a4c0b1d2e3f", model: "NVIDIA GeForce RTX 4090" }],
       architecture: "arm64",
     },
   ],
@@ -51,6 +52,10 @@ export const MOCK_PROXMOX_STATUS_ONLINE: ProxmoxStatus = {
       memoryUsed: 32768,
       memoryTotal: 131072,
       gpuCount: 2,
+      gpuDevices: [
+        { id: "0000:01:00.0", model: "NVIDIA GeForce RTX 4090", busy: true },
+        { id: "0000:02:00.0", model: "NVIDIA GeForce RTX 3070" },
+      ],
       architecture: "amd64",
     },
     {
@@ -87,6 +92,7 @@ export const MOCK_KOMODO_STATUS: KomodoStatus = {
       host: "10.0.0.21",
       gpuAvailable: true,
       gpuModel: "NVIDIA GeForce RTX 4080",
+      gpuDevices: [{ id: "GPU-4c8b2f11-9a03-5e7d-2b6c-8d1e0a9f3c4b", model: "NVIDIA GeForce RTX 4080" }],
       architecture: "amd64",
       totalMemoryGb: 64,
       usedMemoryGb: 20,

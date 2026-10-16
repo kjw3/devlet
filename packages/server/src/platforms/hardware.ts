@@ -11,21 +11,41 @@ export function dockerGpuCount(info: { GenericResources?: Array<{ NamedResourceS
   return ids?.length ? new Set(ids).size : undefined;
 }
 export function parseNvidiaInventory(output: string) {
-  const devices = [...output.matchAll(/GPU (\d+):\s*([^\r\n]+?)\s*\(UUID:/g)];
-  return { gpuCount: new Set(devices.map(d => d[1])).size, gpuModel: devices[0]?.[2] };
+  const devices = [...output.matchAll(/GPU (\d+):\s*([^\r\n]+?)\s*\(UUID:\s*([^)]+)\)/g)];
+  return {
+    gpuCount: new Set(devices.map(d => d[1])).size,
+    gpuModel: devices[0]?.[2],
+    // One entry per physical GPU, keyed by UUID — what the hire-time GPU
+    // selector offers on container platforms.
+    gpuDevices: devices.map(d => ({ id: d[3]!.trim(), model: d[2]!.trim() })),
+  };
+}
+
+/** `--gpus` value for a `docker run`: specific UUIDs when selected, else all. */
+export function gpuRunArg(devices?: string[]): string {
+  return devices?.length ? `device=${devices.join(",")}` : "all";
 }
 
 /**
- * HostConfig.DeviceRequests requesting every NVIDIA GPU — the Engine-API
- * equivalent of `docker run --gpus all`. Count -1 means "all devices".
- * Per-GPU selection (DeviceIDs) is future work (docs/gpu-agents.md).
+ * HostConfig.DeviceRequests for a GPU-required agent — the Engine-API
+ * equivalent of `docker run --gpus`. With device ids, exactly those GPUs are
+ * exposed (`--gpus device=UUID-a,UUID-b`); without, all of them.
  */
-export function gpuDeviceRequests(): Array<{
+export function gpuDeviceRequests(devices?: string[]): Array<{
   Driver: string;
-  Count: number;
+  Count?: number;
+  DeviceIDs?: string[];
   Capabilities: string[][];
   Options: Record<string, string>;
 }> {
+  if (devices?.length) {
+    return [{
+      Driver: "nvidia",
+      DeviceIDs: devices,
+      Capabilities: [["gpu", "compute", "utility"]],
+      Options: {},
+    }];
+  }
   return [{
     Driver: "nvidia",
     Count: -1,

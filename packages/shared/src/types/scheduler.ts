@@ -7,6 +7,10 @@ export interface GpuRequirements {
   required: boolean;
   memoryMb?: number;          // minimum GPU memory
   passthroughMode?: "container" | "vm";
+  /** Specific GPUs to expose, selected in the hire wizard (GPU UUIDs on
+   *  container platforms, PCI ids on Proxmox). Only valid with a pinned
+   *  placement; when empty, all GPUs of the chosen host are exposed. */
+  devices?: string[];
 }
 
 /** The scheduler reads these to decide where to place an agent. */

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { AgentType, PlatformTarget, ProxmoxStatus } from "@devlet/shared";
+import type { AgentType, GpuDeviceInfo, PlatformTarget, ProxmoxStatus } from "@devlet/shared";
 import {
   ENABLED_AGENT_TYPES,
   CODING_AGENT_TYPES,
@@ -181,6 +181,8 @@ interface FormState {
   diskGb: number;
   gpuRequired: boolean;
   gpuMemoryMb: number;
+  /** Specific GPUs chosen in the selector; empty = all GPUs of the host. */
+  gpuDevices: string[];
   persistent: boolean;
   /** Join the tailnet while running (opt-out). Only offered when Tailscale is configured. */
   tailnet: boolean;
@@ -188,6 +190,12 @@ interface FormState {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+/** Shorten a GPU-UUID or PCI id for the selector list. */
+function shortGpuId(id: string): string {
+  if (id.startsWith("GPU-")) return id.slice(4, 16);
+  return id;
+}
 
 function StepIndicator({ current }: { current: Step }) {
   const idx = STEPS.indexOf(current);
@@ -234,6 +242,7 @@ export function HireAgent() {
     diskGb: 10,
     gpuRequired: false,
     gpuMemoryMb: 8192,
+    gpuDevices: [],
     persistent: false,
     tailnet: true,
   });
@@ -243,6 +252,8 @@ export function HireAgent() {
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({
       ...prev, [key]: value,
+      // A different host means a different GPU inventory — drop the selection.
+      ...(key === "platformOverride" && prev.gpuDevices.length ? { gpuDevices: [] as string[] } : {}),
       ...(key === "gpuRequired" && prev.platformOverride?.type === "proxmox"
         ? { platformOverride: { ...prev.platformOverride, vmType: value ? "qemu" as const : "lxc" as const } }
         : {}),
@@ -327,7 +338,7 @@ export function HireAgent() {
           persistent: form.mode === "single-task" ? false : form.persistent,
           onComplete: form.mode === "single-task" ? "terminate" as const : "idle" as const,
           ...(form.mode === "long-running" && form.gpuRequired
-            ? { gpu: { required: true, memoryMb: form.gpuMemoryMb } }
+            ? { gpu: { required: true, memoryMb: form.gpuMemoryMb, ...(form.gpuDevices.length ? { devices: form.gpuDevices } : {}) } }
             : {}),
         }
       : null;
@@ -343,6 +354,24 @@ export function HireAgent() {
       : null;
 
   const resolvedPlatform = form.platformOverride ?? schedulerDecision?.placement;
+
+  // GPU inventory of the pinned host (from the status probes the page already
+  // holds). Only meaningful with an override — auto-placement picks the host
+  // later, so specific devices can't be selected up front.
+  const hostGpuDevices: GpuDeviceInfo[] = (() => {
+    const o = form.platformOverride;
+    if (!o) return [];
+    if (o.type === "docker") return dockerStatus?.gpuDevices ?? [];
+    if (o.type === "portainer") return portainerStatus?.endpoints.find((e) => e.id === o.endpointId)?.gpuDevices ?? [];
+    if (o.type === "proxmox") return proxmoxStatus?.nodes.find((n) => n.name === o.node)?.gpuDevices ?? [];
+    return komodoStatus?.servers.find((s) => s.id === o.serverId || s.name === o.serverId)?.gpuDevices ?? [];
+  })();
+
+  function toggleGpuDevice(id: string) {
+    update("gpuDevices", form.gpuDevices.includes(id)
+      ? form.gpuDevices.filter((d) => d !== id)
+      : [...form.gpuDevices, id]);
+  }
 
   const diskQuery = trpcInventory.platforms.diskCapacity.useQuery(resolvedPlatform ?? { type: "docker" }, {
     enabled: !!resolvedPlatform, refetchInterval: 10_000, staleTime: 5_000,
@@ -409,7 +438,9 @@ export function HireAgent() {
           onComplete: "idle",
         },
         resources: requestedResources,
-        ...(form.gpuRequired ? { gpu: { required: true, memoryMb: form.gpuMemoryMb } } : {}),
+        ...(form.gpuRequired
+          ? { gpu: { required: true, memoryMb: form.gpuMemoryMb, ...(form.gpuDevices.length ? { devices: form.gpuDevices } : {}) } }
+          : {}),
         env: form.tailnet ? {} : { DEVLET_TAILSCALE: "false" },
         persistent: form.persistent,
         ...(resolvedPlatform ? { platformOverride: resolvedPlatform } : {}),
@@ -695,6 +726,15 @@ export function HireAgent() {
                   { label: "type", val: form.type ? AGENT_TYPE_LABELS[form.type as AgentType] : "" },
                   { label: "role", val: form.role },
                   { label: "mission", val: form.missionDescription },
+                  ...(form.mode === "long-running" && form.gpuRequired
+                    ? [{
+                        label: "gpu",
+                        val:
+                          form.gpuDevices.length > 0
+                            ? `required — ${form.gpuDevices.length} selected: ${form.gpuDevices.map(shortGpuId).join(", ")}`
+                            : "required — all GPUs on the host",
+                      }]
+                    : []),
                 ].map(({ label, val }) => (
                   <div
                     key={label}
@@ -730,18 +770,63 @@ export function HireAgent() {
                         </span>
                       </div>
                       {form.gpuRequired && (
-                        <div className="pl-6">
-                          <label className="text-[11px] text-gray-500 block mb-1">Min GPU memory (MB)</label>
-                          <input
-                            type="number"
-                            min={1024}
-                            max={81920}
-                            step={1024}
-                            value={gpuMemoryInput.value}
-                            onChange={gpuMemoryInput.onChange}
-                            onBlur={gpuMemoryInput.onBlur}
-                            className="w-40 bg-surface border border-surface-border rounded-sm px-3 py-1.5 text-[13px] text-gray-100 focus:outline-none focus:border-accent-cyan/50"
-                          />
+                        <div className="pl-6 space-y-3">
+                          <div>
+                            <label className="text-[11px] text-gray-500 block mb-1">Min GPU memory (MB)</label>
+                            <input
+                              type="number"
+                              min={1024}
+                              max={81920}
+                              step={1024}
+                              value={gpuMemoryInput.value}
+                              onChange={gpuMemoryInput.onChange}
+                              onBlur={gpuMemoryInput.onBlur}
+                              className="w-40 bg-surface border border-surface-border rounded-sm px-3 py-1.5 text-[13px] text-gray-100 focus:outline-none focus:border-accent-cyan/50"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-gray-500 block mb-1">GPUs to expose</label>
+                            {form.platformOverride ? (
+                              hostGpuDevices.length > 0 ? (
+                                <div>
+                                  <div className="space-y-1">
+                                    {hostGpuDevices.map((g) => (
+                                      <label key={g.id} className="flex items-center gap-2 text-[12px] text-gray-300 cursor-pointer">
+                                        <input
+                                          type="checkbox"
+                                          checked={form.gpuDevices.includes(g.id)}
+                                          onChange={() => toggleGpuDevice(g.id)}
+                                          className="w-3.5 h-3.5 accent-accent-cyan"
+                                        />
+                                        <span>{g.model ?? "GPU"}</span>
+                                        <span className="font-mono text-[11px] text-gray-600">{shortGpuId(g.id)}</span>
+                                        {g.busy && (
+                                          <span className="text-[10px] text-status-error border border-status-error/40 rounded-sm px-1">
+                                            busy
+                                          </span>
+                                        )}
+                                      </label>
+                                    ))}
+                                  </div>
+                                  <div className="text-[11px] text-gray-600 mt-1">
+                                    {form.gpuDevices.length === 0
+                                      ? "No selection — all GPUs on the host are exposed"
+                                      : `Only the selected ${form.gpuDevices.length === 1 ? "GPU is" : "GPUs are"} exposed to the agent`}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-[11px] text-gray-600">
+                                  No individual GPUs detected on this host — the agent gets all of them
+                                  (needs nvidia-container-toolkit on the host, or GPU passthrough on Proxmox).
+                                </div>
+                              )
+                            ) : (
+                              <div className="text-[11px] text-gray-600">
+                                Auto-placement — the agent gets all GPUs of whichever host the scheduler picks.
+                                Pin a placement below to select specific GPUs.
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>

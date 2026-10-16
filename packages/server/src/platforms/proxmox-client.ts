@@ -1,5 +1,6 @@
 import http from "node:http";
 import https from "node:https";
+import type { GpuDeviceInfo } from "@devlet/shared";
 import { config } from "../config.js";
 
 // ─── Overview ──────────────────────────────────────────────────────────────────
@@ -520,7 +521,7 @@ export interface PciDevice {
  *  compute cards (A100 etc.) report 0x0302. */
 const GPU_PCI_CLASSES = new Set(["0300", "0302", "0380"]);
 
-function isGpuDevice(d: PciDevice): boolean {
+export function isGpuDevice(d: PciDevice): boolean {
   const raw = (d.class || "").toLowerCase().replace(/^0x/, "");
   if (!GPU_PCI_CLASSES.has(raw.slice(0, 4))) return false;
   // Skip server BMC management graphics (ASPEED) — present on every board,
@@ -553,6 +554,19 @@ export async function firstGpuPciId(node: string): Promise<string | null> {
   const devices = await listPciDevices(node);
   const gpu = devices.find(isGpuDevice);
   return gpu?.id ?? null;
+}
+
+/** All GPU-class PCI devices on a node with passthrough availability — what
+ *  the hire-time GPU selector offers for Proxmox hosts. */
+export async function listGpuDevices(node: string): Promise<GpuDeviceInfo[]> {
+  const [devices, inUse] = await Promise.all([listPciDevices(node), listHostpciInUse(node)]);
+  return devices
+    .filter(isGpuDevice)
+    .map((g) => ({
+      id: g.id,
+      model: g.device_name,
+      ...(inUse.has(pciSlotKey(g.id)) ? { busy: true } : {}),
+    }));
 }
 
 /**
@@ -601,7 +615,7 @@ export async function listHostpciInUse(node: string): Promise<Map<string, string
 }
 
 /** Normalize a PCI id to its slot (drop the ".function" suffix, lowercase). */
-function pciSlotKey(id: string): string {
+export function pciSlotKey(id: string): string {
   return id.toLowerCase().replace(/\.[0-9a-f]+$/, "");
 }
 

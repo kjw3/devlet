@@ -11,8 +11,11 @@ import {
   getLxcGuestIp,
   getQemuGuestIp,
   getStorageInfo,
+  isGpuDevice,
   listClusterGuests,
   listHostpciInUse,
+  listPciDevices,
+  pciSlotKey,
   pickGpuPciId,
   pveDelete,
   pveGet,
@@ -25,6 +28,15 @@ import {
   ProxmoxTaskError,
 } from "./proxmox-client.js";
 import { getProvisioningKey, isGuestSshReachable, runGuestScript } from "./proxmox-ssh.js";
+
+/** PVE exposes hostpci0–hostpci3 per VM. */
+export const MAX_HOSTPCI_DEVICES = 4;
+
+/** Map selected GPU PCI ids onto hostpci slots — pure, so the wizard-order →
+ *  slot mapping is unit-testable without a PVE host. */
+export function buildHostpciEntries(deviceIds: string[]): Array<[string, string]> {
+  return deviceIds.slice(0, MAX_HOSTPCI_DEVICES).map((id, i) => [`hostpci${i}`, id]);
+}
 
 // ─── Proxmox guest lifecycle (see docs/proxmox-provisioning.md) ────────────────
 // Each agent gets a dedicated LXC container or QEMU VM (D3). The guest runs
@@ -601,6 +613,7 @@ async function createQemuGuest(
     // already passed through to other VMs are rejected up front (clear error
     // instead of a vfio failure at VM start).
     const wantsGpu = Boolean(agentConfig.gpu?.required) || Boolean(config.proxmox.gpuPciId);
+    const selectedGpuDevices = agentConfig.gpu?.devices ?? [];
     if (wantsGpu) {
       if (config.proxmox.gpuPciId) {
         const inUse = await listHostpciInUse(node);
@@ -611,6 +624,26 @@ async function createQemuGuest(
           );
         }
         configUpdate["hostpci0"] = `${config.proxmox.gpuPciId},pcie=1`;
+      } else if (selectedGpuDevices.length > 0) {
+        // GPUs explicitly chosen in the hire wizard — map them onto hostpci
+        // slots after a fresh free/busy check against the node.
+        const [devices, inUse] = await Promise.all([listPciDevices(node), listHostpciInUse(node)]);
+        const gpuIds = new Set(devices.filter(isGpuDevice).map((d) => pciSlotKey(d.id)));
+        for (const id of selectedGpuDevices) {
+          if (!gpuIds.has(pciSlotKey(id))) {
+            throw new Error(`GPU ${id} is not a GPU-class PCI device on node ${node}`);
+          }
+          const owner = inUse.get(pciSlotKey(id));
+          if (owner) {
+            throw new Error(`GPU ${id} is already assigned to ${owner} on node ${node}`);
+          }
+        }
+        if (selectedGpuDevices.length > MAX_HOSTPCI_DEVICES) {
+          throw new Error(`At most ${MAX_HOSTPCI_DEVICES} GPUs can be passed to one VM (requested: ${selectedGpuDevices.length})`);
+        }
+        for (const [slot, id] of buildHostpciEntries(selectedGpuDevices)) {
+          configUpdate[slot] = `${id},pcie=1`;
+        }
       } else {
         const picked = await pickGpuPciId(node);
         if (!picked) {

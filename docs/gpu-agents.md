@@ -123,11 +123,28 @@ exists, repeat the Docker checks through Portainer.
 3. In the guest: `nvidia-smi` (template driver), then the agent container's
    `nvidia-smi` (toolkit + `--gpus all`).
 
+## Per-GPU selection (hire wizard)
+
+The hire wizard's GPU section lists the individual GPUs of the pinned host
+(pinned = placement override; with auto-placement the agent gets all GPUs of
+whichever host the scheduler picks). Leaving everything unchecked keeps the
+"all GPUs" behaviour; checking specific GPUs restricts the agent to those:
+
+- **Docker / Portainer / Komodo**: ids are NVIDIA UUIDs from `nvidia-smi -L`
+  (Komodo probes its servers; Docker probes a throwaway `debian:12-slim
+  --gpus all nvidia-smi -L` container; Portainer reads endpoint snapshots).
+  Deployment requests exactly those GPUs (`--gpus device=UUID,…` on Komodo,
+  `DeviceIDs` in HostConfig on Docker/Portainer). GPUs are *shared* on these
+  platforms — two agents may select the same GPU.
+- **Proxmox**: ids are PCI ids from `hardware/pci` with free/busy state from
+  `hostpci*` ownership. Selection is *exclusive* — busy GPUs are rejected at
+  hire time, and each selected GPU maps onto `hostpci0`–`hostpci3` (max 4).
+
+Selections are re-validated against fresh probe data at hire time; a stale UI
+selection fails with `PRECONDITION_FAILED` instead of deploying a broken agent.
+
 ## Limits / follow-ups
 
-- **Per-GPU placement**: container platforms request *all* GPUs
-  (`Count: -1`); selecting a specific GPU index is future work
-  (`DeviceIDs`/`NVIDIA_VISIBLE_DEVICES`).
 - **Scheduler VRAM awareness**: `gpu.memoryMb` is stored but not yet matched
   against host VRAM.
 - **Full CUDA toolkit (nvcc)** is not in the GPU image — agents that need to

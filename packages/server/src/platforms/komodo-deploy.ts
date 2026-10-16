@@ -1,6 +1,7 @@
 import { Types } from "komodo_client";
 import type { AgentConfig } from "@devlet/shared";
 import { agentImageFor } from "./docker.js";
+import { gpuRunArg } from "./hardware.js";
 import { buildContainerEnv } from "./env.js";
 import { getKomodoClient, type Komodo } from "./komodo-client.js";
 import { listAgentStates } from "../agents/state.js";
@@ -108,7 +109,7 @@ function buildExtraArgs(agentConfig: AgentConfig): string[] {
   if (agentConfig.resources.memoryMb > 0) args.push("--memory", `${agentConfig.resources.memoryMb}m`);
   // Container GPU passthrough (not VM — that's Proxmox).
   if (agentConfig.gpu?.required && agentConfig.gpu.passthroughMode !== "vm") {
-    args.push("--gpus", "all");
+    args.push("--gpus", gpuRunArg(agentConfig.gpu.devices));
   }
   return args;
 }

@@ -62,6 +62,8 @@ export const GpuRequirementsSchema = z.object({
   required: z.boolean(),
   memoryMb: z.number().int().positive().optional(),
   passthroughMode: z.enum(["container", "vm"]).optional(),
+  // Specific GPUs picked in the hire wizard (see GpuRequirements.devices).
+  devices: z.array(z.string().min(1)).optional(),
 });
 
 // ─── Agent Config ─────────────────────────────────────────────────────────────

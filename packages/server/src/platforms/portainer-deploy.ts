@@ -187,7 +187,7 @@ export async function createPortainerContainer(
           // Same Engine-API GPU request as the local Docker platform
           // (`docker run --gpus all`); requires nvidia-container-toolkit on
           // the endpoint host.
-          ...(agentConfig.gpu?.required ? { DeviceRequests: gpuDeviceRequests() } : {}),
+          ...(agentConfig.gpu?.required ? { DeviceRequests: gpuDeviceRequests(agentConfig.gpu.devices) } : {}),
           RestartPolicy: {
             Name: agentConfig.persistent ? "unless-stopped" : "no",
           },

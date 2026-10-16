@@ -1,5 +1,5 @@
 import { dockerGpuCount } from "./hardware.js";
-import type { PortainerStatus } from "@devlet/shared";
+import type { GpuDeviceInfo, PortainerStatus } from "@devlet/shared";
 import { config } from "../config.js";
 import { loadEffectivePlatformExclusions } from "./exclusions.js";
 
@@ -27,6 +27,26 @@ interface PortainerApiEndpoint {
       };
     };
   }>;
+}
+
+/** GPU devices advertised by an endpoint: ids from Docker GenericResources,
+ *  model names from Portainer's GPU snapshot when available. Snapshot-driven —
+ *  no live probe, so this is only as fresh as the last Portainer snapshot. */
+function endpointGpuDevices(ep: PortainerApiEndpoint): GpuDeviceInfo[] {
+  const generic = ep.Snapshots?.[0]?.DockerSnapshotRaw?.Info?.GenericResources ?? [];
+  const ids = generic
+    .filter((r) => r.NamedResourceSpec?.Kind === "NVIDIA-GPU")
+    .map((r) => r.NamedResourceSpec?.Value)
+    .filter((id): id is string => Boolean(id));
+  if (ids.length > 0) {
+    return ids.map((id) => ({
+      id,
+      model: ep.Gpus?.find((g) => g.uuid === id)?.name,
+    }));
+  }
+  return (ep.Gpus ?? [])
+    .filter((g): g is { uuid: string; name?: string } => Boolean(g.uuid))
+    .map((g) => ({ id: g.uuid, model: g.name }));
 }
 
 function normalizeArchitecture(value: string | undefined): "amd64" | "arm64" | "unknown" {
@@ -100,6 +120,7 @@ export async function probePortainer(): Promise<PortainerStatus> {
           ? { gpuAvailable: true }
           : {}),
         gpuCount: ep.Gpus?.length ? ep.Gpus.length : dockerGpuCount(ep.Snapshots?.[0]?.DockerSnapshotRaw?.Info ?? {}),
+        ...(endpointGpuDevices(ep).length ? { gpuDevices: endpointGpuDevices(ep) } : {}),
         architecture: normalizeArchitecture(
           ep.Snapshots?.[0]?.DockerSnapshotRaw?.Info?.Architecture
         ),

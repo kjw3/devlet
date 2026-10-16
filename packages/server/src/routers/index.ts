@@ -47,6 +47,7 @@ import {
 } from "../platforms/portainer-deploy.js";
 import { probePortainer } from "../platforms/portainer.js";
 import { probeProxmox, validateProxmoxPlacement } from "../platforms/proxmox.js";
+import { resolveHostGpuDevices, validateGpuDeviceIds } from "../platforms/gpu-selection.js";
 import { probeKomodo, probeKomodoCached } from "../platforms/komodo.js";
 import { isServerOnTailnet } from "../tailscale/node.js";
 import { findAgentDevice, probeTailscale, removeAgentDevices, isTailscaleEnabledFor } from "../tailscale/client.js";
@@ -284,6 +285,7 @@ function normalizeGpu(gpu: {
   required: boolean;
   memoryMb?: number;
   passthroughMode?: "container" | "vm";
+  devices?: string[];
 }): GpuRequirements {
   return {
     required: gpu.required,
@@ -291,6 +293,7 @@ function normalizeGpu(gpu: {
     ...(gpu.passthroughMode !== undefined
       ? { passthroughMode: gpu.passthroughMode }
       : {}),
+    ...(gpu.devices?.length ? { devices: gpu.devices } : {}),
   };
 }
 
@@ -663,6 +666,27 @@ export const appRouter = t.router({
               code: "PRECONDITION_FAILED",
               message: placementCheck.message,
             });
+          }
+        }
+
+        // GPU device selection only makes sense against a pinned host — with
+        // auto-placement the scheduler picks the host, so devices can't be
+        // known up front ("--gpus all" semantics apply there).
+        const selectedGpuDevices = input.gpu?.devices ?? [];
+        if (selectedGpuDevices.length > 0 && !input.platformOverride) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Selecting specific GPUs requires a pinned placement — choose a host in the wizard, then pick its GPUs",
+          });
+        }
+        if (selectedGpuDevices.length > 0) {
+          const hostDevices = resolveHostGpuDevices(platform, schedulerContext);
+          if (!hostDevices.ok) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: hostDevices.message });
+          }
+          const deviceCheck = validateGpuDeviceIds(platform, selectedGpuDevices, hostDevices.devices);
+          if (!deviceCheck.ok) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: deviceCheck.message });
           }
         }
 

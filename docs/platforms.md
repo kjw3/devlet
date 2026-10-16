@@ -3,7 +3,8 @@
 GPU assignment per platform is covered in [docs/gpu-agents.md](gpu-agents.md):
 gpu-required coding agents run the `devlet-agent-gpu` image (NVIDIA env + CUDA
 runtime layered on the base image), container platforms request GPUs via
-`HostConfig.DeviceRequests` (`--gpus all`), and Proxmox passes the PCI device
+`HostConfig.DeviceRequests` (all GPUs by default, or the UUIDs picked in the
+hire wizard's GPU selector), and Proxmox passes the selected PCI devices
 through to a QEMU guest.
 
 ## Komodo
@@ -44,16 +45,20 @@ A server is tagged as a GPU node when `nvidia-smi -L` lists a device:
 Results are cached for five minutes. The first scan after a Devlet restart can take ~10–15 seconds
 while `busybox` / `debian:12-slim` are pulled onto the hosts that need them.
 
-GPU-required agents are deployed with `--gpus all` (container passthrough) and the
+GPU-required agents are deployed with `--gpus all` (container passthrough) or
+`--gpus device=UUID,…` when the hire wizard selected specific GPUs, plus the
 `devlet-agent-gpu` image; the target server needs the NVIDIA driver and
-`nvidia-container-toolkit`.
+`nvidia-container-toolkit`. GPU inventory (UUIDs) comes from the same
+`nvidia-smi -L` probe, cached five minutes.
 
 ## Portainer
 
 Endpoints are discovered from the Portainer API. Agent ports are published on `0.0.0.0` of the
 endpoint's Docker host and reached through the endpoint's address. GPU-required agents set
 `HostConfig.DeviceRequests` on the endpoint's Docker API (identical to the local Docker
-platform); endpoint hosts need the NVIDIA driver + `nvidia-container-toolkit`.
+platform; the wizard's device selection maps to `DeviceIDs`); endpoint hosts need the
+NVIDIA driver + `nvidia-container-toolkit`. Device lists are read from endpoint
+snapshots (GenericResources / Gpus), so they are only as fresh as the last snapshot.
 
 ## Docker (local)
 
@@ -61,7 +66,9 @@ Opt-in: add `docker-compose.local-docker.yml` to mount the host Docker socket in
 (omit it on a production control plane that places agents through Komodo or Portainer). Agents then run on that socket. Published ports bind to loopback on
 the Docker host and the server proxies to them via `DEVLET_DOCKER_PROXY_HOST`
 (default `host.docker.internal`). GPU-required agents request all NVIDIA GPUs via
-`HostConfig.DeviceRequests` (`--gpus all`); the host needs the NVIDIA driver +
+`HostConfig.DeviceRequests` (`--gpus all`, or `DeviceIDs` when the wizard selected
+specific UUIDs — enumerated with a throwaway `--gpus all nvidia-smi -L` probe,
+cached five minutes); the host needs the NVIDIA driver +
 `nvidia-container-toolkit`.
 
 ## Proxmox
@@ -87,7 +94,10 @@ implementation plan, permissions and template preparation):
 - **Fixed ports.** Each agent has its own guest, so ports never collide: terminal 7681,
   SSH 2222, plus OpenClaw 18789 / Moltis 13131 where applicable.
 - **GPU passthrough.** GPU-required hires get the node's first **free** GPU as
-  `hostpci0` — GPUs already passed through to another VM are rejected up front (hire
+  `hostpci0`, or the exact PCI devices chosen in the hire wizard's GPU selector
+  mapped onto `hostpci0`–`hostpci3` (max 4; validated fresh at hire time — busy
+  or non-GPU PCI ids are rejected). GPUs already passed through to another VM are
+  rejected up front (hire
   fails synchronously with `Node "x" has no free GPU`; override with
   `PROXMOX_GPU_PCI_ID`, BMC/dummy graphics excluded). PVE only lets root@pam set
   `hostpci*` — even a fully-privileged token gets `only root can set 'hostpci0' config`

@@ -1,6 +1,16 @@
 export type PlatformType = "docker" | "portainer" | "proxmox" | "komodo";
 export type PlatformArchitecture = "amd64" | "arm64" | "unknown";
 
+/** One GPU on a host, as offered by the hire-time GPU selector. */
+export interface GpuDeviceInfo {
+  /** NVIDIA GPU UUID ("GPU-…") on container platforms, PCI id ("0000:01:00.0") on Proxmox. */
+  id: string;
+  /** Human-readable model, e.g. "NVIDIA GeForce GT 1030". */
+  model?: string;
+  /** Proxmox only: already passed through to another VM. */
+  busy?: boolean;
+}
+
 export type PlatformTarget =
   | { type: "docker"; socketPath?: string }
   | { type: "portainer"; endpointId: number; endpointName?: string; stackName?: string }
@@ -24,6 +34,8 @@ export interface DockerStatus {
   /** Whether the Docker host has GPU runtime support (nvidia-container-runtime) */
   gpuAvailable?: boolean;
   gpuCount?: number;
+  /** Individual GPUs, when enumerable (powers the hire-time GPU selector). */
+  gpuDevices?: GpuDeviceInfo[];
   architecture?: PlatformArchitecture;
   error?: string;
 }
@@ -38,6 +50,8 @@ export interface PortainerEndpoint {
   /** Whether this endpoint has hosts with GPU support */
   gpuAvailable?: boolean;
   gpuCount?: number;
+  /** Individual GPUs from the latest snapshot, when enumerable. */
+  gpuDevices?: GpuDeviceInfo[];
   /** Excluded from scheduling by configuration */
   excluded?: boolean;
   architecture?: PlatformArchitecture;
@@ -81,6 +95,8 @@ export interface ProxmoxNode {
   memoryTotal: number;     // MB
   /** Number of GPU devices available for passthrough on this node */
   gpuCount?: number;
+  /** Individual GPUs with passthrough availability (powers the GPU selector). */
+  gpuDevices?: GpuDeviceInfo[];
   /** Excluded from scheduling by configuration */
   excluded?: boolean;
   architecture?: PlatformArchitecture;
@@ -124,6 +140,8 @@ export interface KomodoServer {
   gpuCount?: number;
   /** Detected GPU model, e.g. "NVIDIA GeForce RTX 4080" */
   gpuModel?: string;
+  /** Individual GPUs with UUIDs (powers the hire-time GPU selector). */
+  gpuDevices?: GpuDeviceInfo[];
   /** Excluded from scheduling by configuration */
   excluded?: boolean;
   /** Reachable hostname/IP of this server (for proxying agent UI/SSH) */

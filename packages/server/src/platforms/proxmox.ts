@@ -1,11 +1,11 @@
-import type { ProxmoxStatus } from "@devlet/shared";
+import type { GpuDeviceInfo, ProxmoxStatus } from "@devlet/shared";
 import { config } from "../config.js";
 import { loadEffectivePlatformExclusions } from "./exclusions.js";
 import {
   authHeaders,
-  countGpuDevices,
   isProxmoxConfigured,
   listClusterGuests,
+  listGpuDevices,
   listStorageContent,
   pveGet,
   pickGpuPciId,
@@ -74,16 +74,18 @@ export async function probeProxmox(): Promise<ProxmoxStatus> {
     const exclusions = await loadEffectivePlatformExclusions();
     const nodeArchitectures = new Map<string, "amd64" | "arm64" | "unknown">();
     const nodeGpuCounts = new Map<string, number>();
+    const nodeGpuDevices = new Map<string, GpuDeviceInfo[]>();
 
     await Promise.all(
       nodesData.map(async (node) => {
         try {
-          const [status, gpuCount] = await Promise.all([
+          const [status, gpuDevices] = await Promise.all([
             pveGet<ProxmoxApiNodeStatus>(`/nodes/${encodeURIComponent(node.node)}/status`),
-            countGpuDevices(node.node),
+            listGpuDevices(node.node),
           ]);
           nodeArchitectures.set(node.node, inferNodeArchitecture(status));
-          nodeGpuCounts.set(node.node, gpuCount);
+          nodeGpuCounts.set(node.node, gpuDevices.length);
+          nodeGpuDevices.set(node.node, gpuDevices);
         } catch {
           nodeArchitectures.set(node.node, "unknown");
         }
@@ -103,6 +105,7 @@ export async function probeProxmox(): Promise<ProxmoxStatus> {
         memoryTotal: Math.round(n.maxmem / 1024 / 1024),
         architecture: nodeArchitectures.get(n.node) ?? "unknown",
         gpuCount: nodeGpuCounts.get(n.node) ?? 0,
+        ...(nodeGpuDevices.get(n.node)?.length ? { gpuDevices: nodeGpuDevices.get(n.node) } : {}),
         ...(exclusions.proxmoxNodes.includes(n.node) ? { excluded: true } : {}),
       })),
       // Provisioning readiness (docs/proxmox-provisioning.md)
