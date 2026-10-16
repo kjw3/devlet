@@ -23,13 +23,11 @@ function DockerPanel({ status, loading }: { status?: DockerStatus; loading: bool
     <Section title="Docker">
       <div className="flex items-center justify-between text-[11px] py-0.5">
         <div className="flex items-center gap-2">
-          <ConnIcon ok={status?.connected ?? false} loading={loading} />
           <span className="text-gray-300">
             {loading ? "..." : "local"}
           </span>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          <HostHardware architecture={status?.architecture} gpuCount={status?.gpuCount} gpuAvailable={status?.gpuAvailable} />
           {!loading && (
             <span className={`label ${status?.connected ? "text-status-running" : "text-status-error"}`}>
               {status?.connected
@@ -37,6 +35,8 @@ function DockerPanel({ status, loading }: { status?: DockerStatus; loading: bool
                 : "offline"}
             </span>
           )}
+          <HostHardware architecture={status?.architecture} gpuCount={status?.gpuCount} gpuAvailable={status?.gpuAvailable} />
+          <ConnIcon ok={status?.connected ?? false} loading={loading} />
         </div>
       </div>
       {status?.connected && (
@@ -75,7 +75,6 @@ function PortainerPanel({ status, loading }: { status?: PortainerStatus; loading
                 {ep.name}
               </span>
               <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
-                <HostHardware architecture={ep.architecture} gpuCount={ep.gpuCount} gpuAvailable={ep.gpuAvailable} />
                 <button
                   className="hidden group-hover:inline label text-[9px] text-gray-500 hover:text-gray-300 transition-colors"
                   disabled={toggleExcluded.isPending}
@@ -86,6 +85,7 @@ function PortainerPanel({ status, loading }: { status?: PortainerStatus; loading
                 >
                   {ep.excluded ? "include" : "exclude"}
                 </button>
+                <HostHardware architecture={ep.architecture} gpuCount={ep.gpuCount} gpuAvailable={ep.gpuAvailable} />
                 <span className={`status-dot flex-shrink-0 ${ep.status === 1 ? "bg-status-running" : "bg-status-error"}`} />
               </div>
             </div>
@@ -127,7 +127,6 @@ function ProxmoxPanel({ status, loading }: { status?: ProxmoxStatus; loading: bo
                 {node.name}
               </span>
               <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
-                <HostHardware architecture={node.architecture} gpuCount={node.gpuCount} />
                 <button
                   className="hidden group-hover:inline label text-[9px] text-gray-500 hover:text-gray-300 transition-colors"
                   disabled={toggleExcluded.isPending}
@@ -138,6 +137,7 @@ function ProxmoxPanel({ status, loading }: { status?: ProxmoxStatus; loading: bo
                 >
                   {node.excluded ? "include" : "exclude"}
                 </button>
+                <HostHardware architecture={node.architecture} gpuCount={node.gpuCount} />
                 <span className={`status-dot flex-shrink-0 ${node.status === "online" ? "bg-status-running" : "bg-status-error"}`} />
               </div>
             </div>
@@ -176,7 +176,6 @@ function KomodoPanel({ status, loading }: { status?: KomodoStatus; loading: bool
                 {server.name}
               </span>
               <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
-                <HostHardware architecture={server.architecture} gpuCount={server.gpuCount} gpuAvailable={server.gpuAvailable} />
                 <button
                   className="hidden group-hover:inline label text-[9px] text-gray-500 hover:text-gray-300 transition-colors"
                   disabled={toggleExcluded.isPending}
@@ -187,6 +186,7 @@ function KomodoPanel({ status, loading }: { status?: KomodoStatus; loading: bool
                 >
                   {server.excluded ? "include" : "exclude"}
                 </button>
+                <HostHardware architecture={server.architecture} gpuCount={server.gpuCount} gpuAvailable={server.gpuAvailable} />
                 <span className={`status-dot flex-shrink-0 ${server.state === "ok" ? "bg-status-running" : "bg-status-error"}`} />
               </div>
             </div>

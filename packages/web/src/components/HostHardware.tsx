@@ -6,10 +6,12 @@ export function HostHardware({ architecture, gpuCount, gpuAvailable }: {
   gpuAvailable?: boolean | undefined;
 }) {
   return <>
+    {((gpuCount ?? 0) > 0 || (gpuCount === undefined && gpuAvailable)) && (
+      <span className="text-[9px] text-accent-purple"
+        title="Detected graphics processing units; not necessarily free for allocation">
+        {gpuCount !== undefined ? `${gpuCount} GPU${gpuCount === 1 ? "" : "s"}` : "GPUs: unknown"}
+      </span>
+    )}
     <span className="text-[9px] text-gray-500 uppercase" title="Host CPU architecture">{architecture && architecture !== "unknown" ? architecture : "arch unknown"}</span>
-    <span className={`text-[9px] ${gpuCount || gpuAvailable ? "text-accent-purple" : "text-gray-600"}`}
-      title="Detected graphics processing units; not necessarily free for allocation">
-      {gpuCount !== undefined ? `${gpuCount} GPU${gpuCount === 1 ? "" : "s"}` : "GPUs: unknown"}
-    </span>
   </>;
 }
