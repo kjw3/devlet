@@ -81,7 +81,7 @@ function parsePlatformRef(ref: string): ParsedRef {
  * Provision an agent on whichever platform `config.platform` specifies.
  * Returns the full platformRef string for the created resource.
  */
-export async function provisionAgent(baseConfig: AgentConfig): Promise<string> {
+export async function provisionAgent(baseConfig: AgentConfig, recoveringProvision = false): Promise<string> {
   // Per-launch tailnet env (single-use auth key) — not persisted in saved agent state.
   const config = await withTailscaleEnv(baseConfig);
   switch (config.platform.type) {
@@ -101,7 +101,7 @@ export async function provisionAgent(baseConfig: AgentConfig): Promise<string> {
       if (platform.type !== "proxmox") {
         throw new Error("Proxmox provisioning invoked without a proxmox platform target");
       }
-      return createProxmoxGuest(config);
+      return createProxmoxGuest(config, recoveringProvision);
     }
 
     case "komodo": {

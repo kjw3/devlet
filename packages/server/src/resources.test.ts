@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { getHostCapacity, memoryOptions, resourceCapacityError, HireAgentInputSchema, scheduleAgent, AGENT_RESOURCE_MINS } from "@devlet/shared";
+import { getResourceMinimum, getHostCapacity, memoryOptions, resourceCapacityError, HireAgentInputSchema, scheduleAgent, AGENT_RESOURCE_MINS } from "@devlet/shared";
 import type { SchedulerContext } from "@devlet/shared";
 const ctx: SchedulerContext = { docker: null, portainer: null, komodo: null, proxmox: {
   connected: true, nodes: [
@@ -12,6 +12,11 @@ test("RAM options start at the agent minimum and stop at host capacity", () => {
   assert.deepEqual(memoryOptions(AGENT_RESOURCE_MINS.pi.memoryMb, 3800), [512, 1024, 2048]);
   assert.deepEqual(memoryOptions(AGENT_RESOURCE_MINS.nemoclaw.memoryMb, 8192), [1024, 2048, 4096, 8192]);
   assert.deepEqual(memoryOptions(1024, 512), []);
+});
+test("guest minimums account for OS and Docker without increasing Docker-only limits", () => {
+  assert.equal(getResourceMinimum("pi", { type: "docker" }).memoryMb, 512);
+  assert.equal(getResourceMinimum("pi", { type: "proxmox", node: "n", vmType: "lxc" }).memoryMb, 1024);
+  assert.equal(getResourceMinimum("pi", { type: "proxmox", node: "n", vmType: "qemu" }).memoryMb, 2048);
 });
 test("capacity follows selected target", () => {
   assert.deepEqual(getHostCapacity({ type: "proxmox", node: "large", vmType: "lxc" }, ctx), { cpus: 16, memoryMb: 32768 });

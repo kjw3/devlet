@@ -2,6 +2,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import {
   scheduleAgent,
   getHostCapacity,
+  getResourceMinimum,
   resourceCapacityError,
   HireAgentInputSchema,
   UpdateMissionInputSchema,
@@ -641,6 +642,10 @@ export const appRouter = t.router({
             return decision.placement;
           })();
 
+        const platformMinimum = getResourceMinimum(input.type, platform);
+        if (input.resources.memoryMb < platformMinimum.memoryMb) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Selected platform requires at least ${platformMinimum.memoryMb} MB RAM including the guest OS and Docker` });
+        }
         const capacityError = resourceCapacityError(input.resources, getHostCapacity(platform, schedulerContext));
         if (capacityError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: capacityError });
 

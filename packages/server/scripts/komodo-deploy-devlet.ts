@@ -88,6 +88,21 @@ if (dryRun) {
   process.exit(0);
 }
 
+// Do not interrupt live provisioning, even when restart recovery is available.
+// Fail closed if the production preflight cannot establish that deployment is safe.
+const productionToken = currentEnv.split("\n").map(l => l.trim())
+  .find(l => l.startsWith("DEVLET_AUTH_TOKEN="))?.slice("DEVLET_AUTH_TOKEN=".length).replace(/^["']|["']$/g, "");
+if (!productionToken) throw new Error("Deployment preflight: production auth token is missing");
+const response = await fetch("http://devlet-server:3001/trpc/agents.list", {
+  headers: { Authorization: `Bearer ${productionToken}` }, signal: AbortSignal.timeout(15_000),
+});
+if (!response.ok) throw new Error(`Deployment preflight failed (HTTP ${response.status})`);
+const payload = await response.json() as { result?: { data?: Array<{ status: string; config: { id: string } }> } };
+if (!Array.isArray(payload.result?.data)) throw new Error("Deployment preflight returned an unexpected response");
+const provisioning = payload.result.data.filter(agent => agent.status === "provisioning");
+if (provisioning.length) throw new Error(`Deployment blocked: agents still provisioning: ${provisioning.map(a => a.config.id).join(", ")}. Wait for completion before redeploying.`);
+console.log("→ preflight: no agents provisioning");
+
 // ── sync compose file ─────────────────────────────────────────────────────────
 const repoCompose = readFileSync(new URL("../../../docker-compose.yml", import.meta.url), "utf8");
 if (composeFile.trimEnd() !== repoCompose.trimEnd()) {

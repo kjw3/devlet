@@ -1,9 +1,9 @@
 import { memoryOptions, type HostCapacity } from "@devlet/shared";
 
-export function ResourceControls({ cpus, memoryMb, minimum, capacity, onCpu, onMemory, error }: {
+export function ResourceControls({ cpus, memoryMb, minimum, capacity, onCpu, onMemory, error, guestType }: {
   cpus: number; memoryMb: number; minimum: { cpus: number; memoryMb: number };
   capacity: HostCapacity; onCpu: (n: number) => void; onMemory: (n: number) => void;
-  error?: string | undefined;
+  error?: string | undefined; guestType?: "lxc" | "qemu" | undefined;
 }) {
   // Unknown capacity is explicitly labelled, never treated as zero or a host limit.
   const ram = memoryOptions(minimum.memoryMb, capacity.memoryMb ?? 1048576);
@@ -27,6 +27,7 @@ export function ResourceControls({ cpus, memoryMb, minimum, capacity, onCpu, onM
           <span>Min {minimum.memoryMb} MB{capacity.memoryMb ? ` · host total ${capacity.memoryMb} MB` : " · host capacity unknown"}</span>
         </label>
       </div>
+      {guestType && <p className="text-[11px] text-gray-500 mt-1">RAM covers the entire {guestType === "qemu" ? "VM (minimum 2 GB)" : "LXC guest (minimum 1 GB)"}, including the OS, Docker, and agent.</p>}
       <p className="text-[10px] text-gray-600 mt-1">Limits use reported host capacity, not currently free resources. Shared hosts can still be under load.</p>
       {error && <p role="alert" className="text-[11px] text-red-400 mt-1">{error}</p>}
     </div>

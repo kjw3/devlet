@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { AgentType, PlatformTarget, ProxmoxStatus } from "@devlet/shared";
 import {
@@ -6,10 +6,10 @@ import {
   CODING_AGENT_TYPES,
   AGENT_TYPE_LABELS,
   AGENT_TYPE_DESCRIPTIONS,
-  AGENT_RESOURCE_MINS,
   AGENT_RESOURCE_DEFAULTS,
   scheduleAgent,
   getHostCapacity,
+  getResourceMinimum,
   resourceCapacityError,
   isStandardMemory,
 } from "@devlet/shared";
@@ -331,7 +331,11 @@ export function HireAgent() {
   const resolvedPlatform = form.platformOverride ?? schedulerDecision?.placement;
 
   const capacity = getHostCapacity(resolvedPlatform, liveContext);
-  const minimum = form.type ? AGENT_RESOURCE_MINS[form.type] : { cpus: 1, memoryMb: 512 };
+  const minimum = form.type ? getResourceMinimum(form.type, resolvedPlatform) : { cpus: 1, memoryMb: 512 };
+  useEffect(() => {
+    setForm(current => current.memoryMb < minimum.memoryMb
+      ? { ...current, memoryMb: minimum.memoryMb } : current);
+  }, [minimum.memoryMb]);
   const resourceError = !Number.isInteger(form.cpus) || form.cpus < Math.ceil(minimum.cpus)
     ? `Choose at least ${Math.ceil(minimum.cpus)} whole CPU core(s)`
     : !isStandardMemory(form.memoryMb) || form.memoryMb < minimum.memoryMb
@@ -340,6 +344,7 @@ export function HireAgent() {
   const resourceControls = <ResourceControls
     cpus={form.cpus} memoryMb={form.memoryMb} minimum={minimum} capacity={capacity}
     onCpu={n => update("cpus", n)} onMemory={n => update("memoryMb", n)} error={resourceError}
+    guestType={resolvedPlatform?.type === "proxmox" ? resolvedPlatform.vmType : undefined}
   />;
 
   function deploy() {

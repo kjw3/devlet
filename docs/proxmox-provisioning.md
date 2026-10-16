@@ -34,6 +34,18 @@ docker run -d --name devlet-agent --restart unless-stopped \
 - A guest without Docker is bootstrapped over SSH (P2); the recommended setup is a
   pre-baked template with Docker preinstalled so bootstrap is a single `docker run`.
 
+**Resource minimums and restart recovery.** New hires require at least 1 GiB RAM
+for LXC and 2 GiB for QEMU (or the agent minimum, if larger). This is the whole
+guest budget, including the OS and Docker, not just the agent process. UI and API
+share these limits. Existing stored configurations remain readable.
+
+At server startup, interrupted Proxmox hires are resumed from a snapshot captured
+before accepting new requests. Bootstrap uses a guest-side lock and retains any
+existing container—even one that has exited—so recovery does not rerun a finished
+task or erase its workspace. Recovery failures become visible errors and retain
+existing guests for inspection. The Komodo deployment script refuses deployment
+while any agent is provisioning; this preflight is not an atomic deployment lock.
+
 **D2 — Guest bootstrap over SSH.** The PVE API has no exec endpoint. Devlet generates a
 dedicated provisioning keypair once (stored in `~/.devlet/proxmox-provision-key`, like
 `ssh/keyStore.ts`), injects the public key at LXC create (`ssh-public-keys` param) and

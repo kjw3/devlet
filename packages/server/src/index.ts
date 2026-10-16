@@ -18,6 +18,7 @@ import {
 } from "./agent-access.js";
 import { config } from "./config.js";
 import { selectUpstream, startServerTailnetNode } from "./tailscale/node.js";
+import { recoverInterruptedProvisions } from "./agents/provision-recovery.js";
 import { bootstrapSshKeysFromEnv } from "./ssh/keyStore.js";
 
 const server = Fastify();
@@ -246,6 +247,9 @@ server.server.on("upgrade", async (request, socket, head) => {
   agentUiProxy.ws(request, socket, head, { ...upstream, target: toWebSocketTarget(upstream.target) });
 });
 
+// Capture before accepting hires so recovery cannot overlap a new hire job.
+const interruptedProvisions = await listAgentStates();
+
 await server.listen({
   port: 3001,
   host: "0.0.0.0",
@@ -254,6 +258,7 @@ await server.listen({
 console.log("Devlet server listening on http://localhost:3001");
 
 await bootstrapSshKeysFromEnv();
+void recoverInterruptedProvisions(interruptedProvisions);
 
 // Join the tailnet in the background so the agent-access proxy can fall back to it.
 void startServerTailnetNode();

@@ -1,4 +1,4 @@
-import type { AgentConfig } from "@devlet/shared";
+import { getResourceMinimum, type AgentConfig } from "@devlet/shared";
 import { randomBytes } from "node:crypto";
 import { inspectGuestRuntime } from "./proxmox-runtime.js";
 import { config } from "../config.js";
@@ -78,7 +78,7 @@ function guestResources(agentConfig: AgentConfig): {
   diskGb: number;
 } {
   const cores = Math.max(1, Math.round(agentConfig.resources.cpus || 1));
-  const memoryMb = Math.max(512, Math.round(agentConfig.resources.memoryMb || 2048));
+  const memoryMb = Math.max(getResourceMinimum(agentConfig.type, agentConfig.platform).memoryMb, Math.round(agentConfig.resources.memoryMb || 2048));
   const diskGb = Math.max(8, Math.ceil((agentConfig.resources.storageMb ?? 0) / 1024) || 10);
   return { cores, memoryMb, diskGb };
 }
@@ -135,7 +135,7 @@ async function resizeQemuRootDisk(
 
 // ─── Bootstrap script (D1) ─────────────────────────────────────────────────────
 
-async function buildBootstrapScript(agentConfig: AgentConfig): Promise<string> {
+export async function buildBootstrapScript(agentConfig: AgentConfig): Promise<string> {
   const image = AGENT_IMAGE[agentConfig.type];
   const ports = guestPortMappings(agentConfig)
     .map((p) => `-p ${p}`)
@@ -157,6 +157,10 @@ async function buildBootstrapScript(agentConfig: AgentConfig): Promise<string> {
   return `set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
+# Surviving SSH jobs and restarted servers must never launch the same task twice.
+exec 9>/run/devlet-bootstrap.lock
+flock -w 660 9 || { echo "[devlet] another bootstrap is still running"; exit 1; }
+
 # Fresh cloud-image VMs run cloud-init (package updates, apt) on first boot —
 # wait for it to finish or apt-get races for the lists lock.
 if command -v cloud-init >/dev/null 2>&1; then
@@ -175,8 +179,17 @@ for i in $(seq 1 30); do
 done
 docker info >/dev/null 2>&1 || { echo "[devlet] Docker daemon not ready"; exit 1; }
 
+# An existing container (even exited) means the task was already launched.
+# Never delete its workspace or rerun a completed single task during recovery.
+existing=$(docker container ls -a --filter 'name=^/devlet-agent$' --format '{{.ID}}')
+if [ -n "$existing" ]; then
+  echo "[devlet] existing agent container retained"
+  exit 0
+fi
+
+echo "[devlet] pulling agent image"
+docker pull ${shellQuote(image)}
 echo "[devlet] starting agent container"
-docker rm -f devlet-agent >/dev/null 2>&1 || true
 docker run -d --name devlet-agent \\
   --restart ${restartPolicy} \\
   ${envArgs} \\
@@ -593,7 +606,7 @@ async function createQemuGuest(
  * Create (or reuse) the guest for this agent and start the agent container in
  * it. Returns the platformRef `proxmox:{node}:{vmType}:{vmId}`.
  */
-export async function createProxmoxGuest(agentConfig: AgentConfig): Promise<string> {
+export async function createProxmoxGuest(agentConfig: AgentConfig, recoveringProvision = false): Promise<string> {
   if (!config.proxmox.url || !config.proxmox.user || !config.proxmox.tokenSecret) {
     throw new Error("Proxmox is not configured (PROXMOX_URL / PROXMOX_USER / PROXMOX_TOKEN_SECRET)");
   }
@@ -614,7 +627,11 @@ export async function createProxmoxGuest(agentConfig: AgentConfig): Promise<stri
     // A powered-on guest can contain a stopped agent. Restart the existing
     // container (preserving its workspace), not just the enclosing guest.
     const runtime = await inspectGuestRuntime(ip);
-    if (runtime === "missing") await bootstrapGuest(agentConfig, ip);
+    if (recoveringProvision) {
+      // Bootstrap is locked and idempotent, including when Docker installation
+      // was interrupted. An exited task is adopted, never started a second time.
+      await bootstrapGuest(agentConfig, ip);
+    } else if (runtime === "missing") await bootstrapGuest(agentConfig, ip);
     else if (runtime === false) {
       await runGuestScript(ip, "docker start devlet-agent", { timeoutMs: 30_000 });
     } else if (runtime === null) {

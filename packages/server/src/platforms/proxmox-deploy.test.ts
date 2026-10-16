@@ -14,7 +14,18 @@ process.env["PROXMOX_BRIDGE"] = "vmbr0";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-const { freshMac, readdressNet0 } = await import("./proxmox-deploy.js");
+import type { AgentConfig } from "@devlet/shared";
+const { freshMac, readdressNet0, buildBootstrapScript } = await import("./proxmox-deploy.js");
+
+it("bootstrap locks before installation and retains existing containers before pulling or launching", async () => {
+  const config: AgentConfig = { id: "test", name: "test", type: "pi", role: "test", platform: { type: "proxmox", node: "n", vmType: "lxc" }, resources: { cpus: 1, memoryMb: 1024 }, mission: { description: "test", steps: [], onComplete: "terminate" }, env: {}, persistent: false, createdAt: "", lastActiveAt: "" };
+  const script = await buildBootstrapScript(config);
+  assert.ok(script.indexOf("flock -w") < script.indexOf("apt-get"));
+  assert.ok(script.indexOf('if [ -n "$existing" ]') < script.indexOf("docker pull"));
+  assert.ok(script.indexOf("docker pull") < script.indexOf("docker run"));
+  assert.ok(!script.includes("docker rm"));
+  assert.ok(!script.includes("docker start"));
+});
 
 const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/;
 const TEMPLATE_NET0 = "virtio=BC:24:11:3D:A3:5A,bridge=vmbr0,firewall=1,tag=2100";

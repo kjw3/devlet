@@ -1,4 +1,12 @@
-import type { PlatformTarget, SchedulerContext, ResourceLimits } from "./types/index.js";
+import type { AgentType, PlatformTarget, SchedulerContext, ResourceLimits } from "./types/index.js";
+import { AGENT_RESOURCE_MINS } from "./constants.js";
+
+/** Guest budget includes the OS and Docker, not just the agent process. */
+export function getResourceMinimum(type: AgentType, target?: PlatformTarget): ResourceLimits {
+  const agent = AGENT_RESOURCE_MINS[type];
+  const guestFloor = target?.type === "proxmox" ? (target.vmType === "qemu" ? 2048 : 1024) : 0;
+  return { cpus: Math.ceil(agent.cpus), memoryMb: Math.max(agent.memoryMb, guestFloor) };
+}
 
 /** Host capacity, not a reservation or instantaneous idle CPU measurement. */
 export interface HostCapacity { cpus?: number; memoryMb?: number }
