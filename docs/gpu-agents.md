@@ -22,8 +22,46 @@ reports GPUs under `--gpus all`. What it does not provide:
 - explicit NVIDIA env (`NVIDIA_VISIBLE_DEVICES`, `NVIDIA_DRIVER_CAPABILITIES`) —
   behaviour should not depend on toolkit defaults
 - CUDA runtime userland for binaries that do not bundle their own
-  (`pip install torch` wheels bundle CUDA, so frameworks need nothing extra)
-- a truthful one-line GPU status in the agent log
+- a truthful one-line GPU status in the agent log, **plus a data-plane probe**
+- a compute stack so the GPU is useful out of the box (see below)
+
+`packages/agents/Dockerfile.gpu` therefore builds `devlet-agent-gpu` on top of
+`devlet-agent-base`: NVIDIA env, minimal CUDA userland (`cuda-cudart-12-4`,
+~40 MB), and a `devlet-gpu-check` probe the entrypoint runs at startup
+(`[devlet] gpu: 1 device(s): NVIDIA GeForce GT 1030, ...`).
+
+### Compute stack (x86_64)
+
+On x86_64 the GPU image additionally ships (adds ~4.5 GB — GPU hosts only):
+
+- **PyTorch 2.4.1 + cu124 wheels and numpy < 2** — validated end-to-end on the
+  GT 1030 (sm_61/Pascal): `torch.cuda.is_available()`, 1000×1000 GPU matmul.
+  The wheels bundle their own CUDA libraries; the host driver (580.x, CUDA 13)
+  runs them fine. `TORCH_CUDA_ARCH_LIST="6.1"` keeps any source-built
+  extensions Pascal-only. numpy is pinned <2 because torch 2.4.1 predates the
+  numpy 2.0 ABI.
+- **nvcc/ptxas + CUDA headers (`cuda-nvcc-12-4`, `cuda-cudart-dev-12-4`) and
+  build-essential** — so the agent can compile raw CUDA kernels
+  (`nvcc -arch=sm_61`) without installing anything. Compilation needs no GPU;
+  the driver's JIT runs PTX from any CUDA version ≤ the host driver's.
+- **`devlet-cuda-probe`** — a zero-dependency ctypes probe run by
+  `devlet-gpu-check` after the management-plane line. Verifies the data plane
+  (primary-context retention, allocation, H2D/D2H roundtrip, device writes,
+  and a driver-JIT'd PTX kernel) and logs `[devlet] gpu: compute OK` — or the
+  failing stage. Never blocks startup.
+- **GPU facts as env** (`DEVLET_GPU_NAME`, `DEVLET_GPU_UUID`,
+  `DEVLET_GPU_COUNT`, `DEVLET_GPU_TOTAL_MEMORY_MB`, `DEVLET_GPU_COMPUTE_CAP`),
+  exported by the entrypoint so the agent can budget VRAM / pick batch sizes
+  without re-probing. Read-only facts — never touches
+  `CUDA_VISIBLE_DEVICES` (the toolkit sets it from the `--gpus device=`
+  selection).
+
+> **Troubleshooting note** — raw-driver (ctypes) CUDA code that calls
+> `cuMemAlloc` right after `cuInit` fails with `CUDA_ERROR_INVALID_CONTEXT`
+> (201) even on a perfectly working GPU: a current context must exist first
+> (`cuDevicePrimaryCtxRetain` + `cuCtxSetCurrent`, or `cuCtxCreate`). A
+> healthy GPU once looked broken because of exactly this; `devlet-cuda-probe`
+> documents the correct sequence.
 
 `packages/agents/Dockerfile.gpu` therefore builds `devlet-agent-gpu` on top of
 `devlet-agent-base`: NVIDIA env, minimal CUDA userland (`cuda-cudart-12-4`,
@@ -96,9 +134,10 @@ GPU hires; the bootstrap handles the toolkit + `--gpus all`.
    (first scan may take ~10–15 s while `debian:12-slim` is pulled).
 2. Hire a GPU-required agent with placement override → Komodo → `sbx3`.
 3. In the agent terminal: `nvidia-smi` must list the GT 1030; the startup log
-   must contain the `[devlet] gpu:` line.
-4. Optional smoke test: `python3 -c` with a small pip-installed torch tensor
-   on `cuda:0` (2 GB VRAM — keep tensors tiny).
+   must contain the `[devlet] gpu:` line followed by
+   `[devlet] gpu: compute OK (context, alloc, copy, JIT kernel)`.
+4. Smoke test (torch is baked into the GPU image; 2 GB VRAM — keep tensors
+   tiny): `python3 -c "import torch; x=torch.randn(1000,1000,device='cuda'); print(torch.cuda.get_device_name(0), float((x@x).sum()))"`.
 
 ### Docker — throwaway devlet on `sbx3`
 
@@ -155,5 +194,10 @@ selection fails with `PRECONDITION_FAILED` instead of deploying a broken agent.
   GPUs can't be fractionally assigned, so a user-settable VRAM figure was dead
   weight (`gpu.memoryMb` stays in the schema for stored configs; a future
   scheduler may match model VRAM automatically).
-- **Full CUDA toolkit (nvcc)** is not in the GPU image — agents that need to
-  compile CUDA should install `cuda-toolkit` in their workspace.
+- **Small-VRAM ergonomics**: the fleet's desktop parts (GT 1030, 2 GB) can't
+  fit large models. Agents should read `DEVLET_GPU_TOTAL_MEMORY_MB`/
+  `torch.cuda.get_device_properties(0).total_memory` up front, default to
+  small batches and fp16/int8, and prefer CPU fallback over OOM. Pascal
+  (sm_61) support must be checked before bumping torch/CUDA — recent
+  toolchains keep dropping old architectures (CUDA 12.4 + torch 2.4 is the
+  validated floor).

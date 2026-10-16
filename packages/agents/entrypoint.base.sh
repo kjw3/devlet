@@ -32,6 +32,22 @@ if [ -x /usr/local/bin/devlet-gpu-check ]; then
   /usr/local/bin/devlet-gpu-check || true
 fi
 
+# GPU facts as env — lets the agent budget VRAM / pick batch sizes without
+# re-probing. Exported here (not inside devlet-gpu-check) because a child
+# process cannot set its parent's environment. Read-only facts only: never
+# touch CUDA_VISIBLE_DEVICES (the nvidia container toolkit sets it from the
+# --gpus device selection).
+if command -v nvidia-smi >/dev/null 2>&1; then
+  if line=$(nvidia-smi --query-gpu=name,uuid,memory.total,compute_cap --format=csv,noheader 2>/dev/null | head -1) && [ -n "$line" ]; then
+    export DEVLET_GPU_COUNT="$(nvidia-smi -L 2>/dev/null | grep -c '^GPU ' || true)"
+    export DEVLET_GPU_NAME="$(printf '%s' "$line" | cut -d, -f1 | xargs)"
+    export DEVLET_GPU_UUID="$(printf '%s' "$line" | cut -d, -f2 | xargs)"
+    export DEVLET_GPU_TOTAL_MEMORY_MB="$(printf '%s' "$line" | cut -d, -f3 | sed 's/[^0-9]//g')"
+    export DEVLET_GPU_COMPUTE_CAP="$(printf '%s' "$line" | cut -d, -f4 | xargs)"
+    echo "[devlet] gpu env: name=$DEVLET_GPU_NAME vram=${DEVLET_GPU_TOTAL_MEMORY_MB}MiB cc=$DEVLET_GPU_COMPUTE_CAP"
+  fi
+fi
+
 # Git identity — required for any agent that commits code
 git config --global user.email "agent@devlet" 2>/dev/null || true
 git config --global user.name "Devlet Agent" 2>/dev/null || true

@@ -10,8 +10,12 @@
 # this layer adds:
 #   - explicit NVIDIA env (not dependent on toolkit defaults)
 #   - CUDA runtime userland for binaries that don't bundle their own
-#     (framework wheels like torch bundle CUDA and need none of this)
-#   - devlet-gpu-check: one-line GPU status in the agent log
+#   - nvcc + headers + gcc so the agent can compile raw CUDA kernels
+#   - PyTorch cu124 (validated on sm_61/Pascal — see docs/gpu-agents.md)
+#   - devlet-gpu-check: GPU status + data-plane probe in the agent log
+#   - GPU facts as env (DEVLET_GPU_*, set by the entrypoint)
+#
+# Resulting image is ~7 GB: only GPU hosts pull this tag.
 #
 # Build args:
 #   BASE_AGENT_IMAGE — the base image to layer on (CI pins it to the sha tag)
@@ -28,7 +32,11 @@ ARG VERSION=0.1.0
 ARG REPOSITORY_URL=https://github.com/kjw3/devlet
 
 ENV NVIDIA_VISIBLE_DEVICES=all \
-    NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
+    TORCH_CUDA_ARCH_LIST="6.1" \
+    PATH="/usr/local/cuda/bin:${PATH}"
 
 USER root
 
@@ -51,13 +59,36 @@ RUN set -eux; \
       rm -rf /var/lib/apt/lists/*; \
     fi
 
+# Compute stack (x86_64 — the CUDA repo layer above is x86_64-only and torch
+# cu124 wheels ship no linux/aarch64 build): gcc/g++ (host compiler for nvcc,
+# pip source builds), pip, CUDA toolkit compiler (nvcc/ptxas + headers) for
+# raw kernels, and PyTorch cu124 with numpy. Deliberately NOT the full
+# cuda-runtime meta-package (cuBLAS/cuFFT/…, ~4 GB) — torch wheels bundle
+# their own CUDA libraries. numpy pinned <2: torch 2.4.1 predates the numpy
+# 2.0 ABI. TORCH_CUDA_ARCH_LIST=6.1 keeps any source-built extensions Pascal-
+# only (the fleet's desktop parts are GT 1030-class).
+RUN set -eux; \
+    if [ "$(uname -m)" = "x86_64" ]; then \
+      apt-get update; \
+      apt-get install -y --no-install-recommends \
+        build-essential python3-pip \
+        "cuda-nvcc-${CUDA_VERSION}" "cuda-cudart-dev-${CUDA_VERSION}"; \
+      rm -rf /var/lib/apt/lists/*; \
+      ln -sfn "/usr/local/cuda-$(echo "${CUDA_VERSION}" | tr - .)" /usr/local/cuda; \
+      python3 -m pip install --no-cache-dir "torch==2.4.1" \
+        --index-url https://download.pytorch.org/whl/cu124 \
+        --extra-index-url https://pypi.org/simple; \
+      python3 -m pip install --no-cache-dir "numpy<2"; \
+    fi
+
 COPY packages/agents/devlet-gpu-check.sh /usr/local/bin/devlet-gpu-check
-RUN chmod +x /usr/local/bin/devlet-gpu-check
+COPY packages/agents/devlet-cuda-probe.py /usr/local/bin/devlet-cuda-probe
+RUN chmod +x /usr/local/bin/devlet-gpu-check /usr/local/bin/devlet-cuda-probe
 
 USER agent
 
 LABEL org.opencontainers.image.title="devlet-agent-gpu"
-LABEL org.opencontainers.image.description="GPU layer above devlet-agent-base: NVIDIA env + CUDA runtime + GPU probe"
+LABEL org.opencontainers.image.description="GPU layer above devlet-agent-base: NVIDIA env + CUDA toolkit + PyTorch + GPU probes"
 LABEL org.opencontainers.image.source="${REPOSITORY_URL}"
 LABEL org.opencontainers.image.revision="${VCS_REF}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
