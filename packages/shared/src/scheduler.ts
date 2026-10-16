@@ -15,6 +15,7 @@
  * preference order: docker > portainer > proxmox > komodo.
  */
 
+import { getHostCapacity, resourceCapacityError } from "./resources.js";
 import type { AgentType } from "./types/agent.js";
 import type {
   DockerStatus,
@@ -601,6 +602,16 @@ export function scheduleAgent(
   reqs: PlacementRequirements,
   ctx: SchedulerContext
 ): PlacementDecision {
+  // Filter before selecting the best host within each platform: otherwise a
+  // high-scoring but undersized host could hide a larger, suitable one.
+  const fits = (target: PlatformTarget) => !resourceCapacityError(reqs.resources, getHostCapacity(target, ctx));
+  ctx = {
+    ...ctx,
+    docker: ctx.docker && !fits({ type: "docker" }) ? { ...ctx.docker, connected: false } : ctx.docker,
+    portainer: ctx.portainer ? { ...ctx.portainer, endpoints: ctx.portainer.endpoints.filter(e => fits({ type: "portainer", endpointId: e.id })) } : null,
+    proxmox: ctx.proxmox ? { ...ctx.proxmox, nodes: ctx.proxmox.nodes.filter(n => fits({ type: "proxmox", node: n.name, vmType: "lxc" })) } : null,
+    komodo: ctx.komodo ? { ...ctx.komodo, servers: ctx.komodo.servers.filter(s => fits({ type: "komodo", serverId: s.id })) } : null,
+  };
   const scores: PlatformScore[] = [];
 
   // A platform the server reports as not configured here is not a candidate at all.

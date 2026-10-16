@@ -1,6 +1,8 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import {
   scheduleAgent,
+  getHostCapacity,
+  resourceCapacityError,
   HireAgentInputSchema,
   UpdateMissionInputSchema,
   RecoverAgentInputSchema,
@@ -589,10 +591,10 @@ export const appRouter = t.router({
           });
         }
         const mins = AGENT_RESOURCE_MINS[input.type];
-        if (input.resources.cpus < mins.cpus) {
+        if (input.resources.cpus < Math.ceil(mins.cpus)) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: `${input.type} requires at least ${mins.cpus} CPU(s) (requested: ${input.resources.cpus})`,
+            message: `${input.type} requires at least ${Math.ceil(mins.cpus)} CPU(s) (requested: ${input.resources.cpus})`,
           });
         }
         if (input.resources.memoryMb < mins.memoryMb) {
@@ -638,6 +640,9 @@ export const appRouter = t.router({
 
             return decision.placement;
           })();
+
+        const capacityError = resourceCapacityError(input.resources, getHostCapacity(platform, schedulerContext));
+        if (capacityError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: capacityError });
 
         // Fail fast on Proxmox placements that cannot provision (missing
         // templates, offline node) instead of erroring asynchronously later.

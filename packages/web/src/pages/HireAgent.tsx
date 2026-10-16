@@ -9,8 +9,12 @@ import {
   AGENT_RESOURCE_MINS,
   AGENT_RESOURCE_DEFAULTS,
   scheduleAgent,
+  getHostCapacity,
+  resourceCapacityError,
+  isStandardMemory,
 } from "@devlet/shared";
 import { PlacementPreview } from "../components/PlacementPreview.js";
+import { ResourceControls } from "../components/ResourceControls.js";
 import { trpc } from "../trpc.js";
 
 // ─── Agent icons ──────────────────────────────────────────────────────────────
@@ -253,7 +257,7 @@ export function HireAgent() {
     setForm((prev) => ({
       ...prev,
       type,
-      cpus: defaults.cpus,
+      cpus: Math.ceil(defaults.cpus),
       memoryMb: defaults.memoryMb,
     }));
   }
@@ -305,10 +309,7 @@ export function HireAgent() {
     form.type !== ""
       ? {
           type: form.type as AgentType,
-          resources:
-            form.mode === "single-task"
-              ? AGENT_RESOURCE_DEFAULTS[form.type as AgentType]
-              : { cpus: form.cpus, memoryMb: form.memoryMb },
+          resources: { cpus: form.cpus, memoryMb: form.memoryMb },
           persistent: form.mode === "single-task" ? false : form.persistent,
           onComplete: form.mode === "single-task" ? "terminate" as const : "idle" as const,
           ...(form.mode === "long-running" && form.gpuRequired
@@ -329,13 +330,24 @@ export function HireAgent() {
 
   const resolvedPlatform = form.platformOverride ?? schedulerDecision?.placement;
 
+  const capacity = getHostCapacity(resolvedPlatform, liveContext);
+  const minimum = form.type ? AGENT_RESOURCE_MINS[form.type] : { cpus: 1, memoryMb: 512 };
+  const resourceError = !Number.isInteger(form.cpus) || form.cpus < Math.ceil(minimum.cpus)
+    ? `Choose at least ${Math.ceil(minimum.cpus)} whole CPU core(s)`
+    : !isStandardMemory(form.memoryMb) || form.memoryMb < minimum.memoryMb
+    ? `Choose a standard RAM size of at least ${minimum.memoryMb} MB`
+    : resourceCapacityError(form, capacity);
+  const resourceControls = <ResourceControls
+    cpus={form.cpus} memoryMb={form.memoryMb} minimum={minimum} capacity={capacity}
+    onCpu={n => update("cpus", n)} onMemory={n => update("memoryMb", n)} error={resourceError}
+  />;
+
   function deploy() {
-    if (form.type === "") return;
+    if (form.type === "" || resourceError) return;
     const type = form.type as AgentType;
 
     if (form.mode === "single-task") {
       const suffix = Math.random().toString(36).slice(2, 6);
-      const defaults = AGENT_RESOURCE_DEFAULTS[type];
       hireMutation.mutate({
         name: `task-${type}-${suffix}`,
         type,
@@ -345,7 +357,7 @@ export function HireAgent() {
           steps: [],
           onComplete: "terminate",
         },
-        resources: { cpus: defaults.cpus, memoryMb: defaults.memoryMb },
+        resources: { cpus: form.cpus, memoryMb: form.memoryMb },
         env: form.tailnet ? {} : { DEVLET_TAILSCALE: "false" },
         persistent: false,
         ...(form.platformOverride ? { platformOverride: form.platformOverride } : {}),
@@ -452,7 +464,7 @@ export function HireAgent() {
                     autoFocus
                   />
                   <p className="text-[11px] text-gray-600 mt-1.5">
-                    Name, role, and resources are auto-configured. The agent terminates when the task completes.
+                    Name and role are auto-configured. Adjust resources at review. The agent terminates when the task completes.
                   </p>
                 </div>
               )}
@@ -570,7 +582,7 @@ export function HireAgent() {
                   <span className="label w-20 flex-shrink-0 pt-0.5">resources</span>
                   <span className="text-gray-300">
                     {form.type
-                      ? `${AGENT_RESOURCE_DEFAULTS[form.type as AgentType].cpus} CPUs · ${AGENT_RESOURCE_DEFAULTS[form.type as AgentType].memoryMb} MB RAM (auto)`
+                      ? `${form.cpus} CPUs · ${form.memoryMb} MB RAM`
                       : ""}
                   </span>
                 </div>
@@ -579,6 +591,8 @@ export function HireAgent() {
                   <span className="text-gray-300">terminates on complete</span>
                 </div>
               </div>
+
+              {resourceControls}
 
               {tailscaleStatus.data?.connected && (
                 <div className="mb-4 flex items-center gap-3">
@@ -656,51 +670,13 @@ export function HireAgent() {
                 ))}
               </div>
 
-              {/* Resources — editable; changes re-run placement preview live */}
+              {/* Shared CPU/RAM controls are also used by single-task hires. */}
+              {resourceControls}
+              {/* Long-running-only options */}
               {form.type && (() => {
-                const mins = AGENT_RESOURCE_MINS[form.type as AgentType];
-                const cpuBelow = form.cpus < mins.cpus;
-                const memBelow = form.memoryMb < mins.memoryMb;
+
                 return (
                   <div className="mb-4">
-                    <div className="label mb-2">resource limits</div>
-                    <div className="grid grid-cols-2 gap-3 mb-3">
-                      <div>
-                        <label className="text-[11px] text-gray-500 block mb-1">CPUs</label>
-                        <input
-                          type="number"
-                          min={mins.cpus}
-                          max={32}
-                          step={0.25}
-                          value={form.cpus}
-                          onChange={(e) => update("cpus", Number(e.target.value))}
-                          className={`w-full bg-surface border rounded-sm px-3 py-2 text-[13px] text-gray-100 focus:outline-none focus:border-accent-cyan/50 ${
-                            cpuBelow ? "border-red-500/60" : "border-surface-border"
-                          }`}
-                        />
-                        <div className={`text-[10px] mt-0.5 ${cpuBelow ? "text-red-400" : "text-gray-600"}`}>
-                          min {mins.cpus} CPU{cpuBelow ? " — below minimum" : ""}
-                        </div>
-                      </div>
-                      <div>
-                        <label className="text-[11px] text-gray-500 block mb-1">Memory (MB)</label>
-                        <input
-                          type="number"
-                          min={mins.memoryMb}
-                          max={65536}
-                          step={256}
-                          value={form.memoryMb}
-                          onChange={(e) => update("memoryMb", Number(e.target.value))}
-                          className={`w-full bg-surface border rounded-sm px-3 py-2 text-[13px] text-gray-100 focus:outline-none focus:border-accent-cyan/50 ${
-                            memBelow ? "border-red-500/60" : "border-surface-border"
-                          }`}
-                        />
-                        <div className={`text-[10px] mt-0.5 ${memBelow ? "text-red-400" : "text-gray-600"}`}>
-                          min {mins.memoryMb} MB{memBelow ? " — below minimum" : ""}
-                        </div>
-                      </div>
-                    </div>
-
                     <div className="card p-3 space-y-3 mb-3">
                       <div className="flex items-center gap-3">
                         <input
@@ -812,7 +788,7 @@ export function HireAgent() {
             {step === "review" ? (
               <button
                 className="btn-primary"
-                disabled={hireMutation.isPending}
+                disabled={hireMutation.isPending || Boolean(resourceError) || platformsLoading}
                 onClick={deploy}
               >
                 {hireMutation.isPending ? "deploying..." : "deploy agent →"}

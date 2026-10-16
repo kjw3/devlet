@@ -77,16 +77,16 @@ export const DEFAULT_RESOURCE_LIMITS = {
 
 /** Minimum resources required per agent type (enforced on client + server). */
 export const AGENT_RESOURCE_MINS: Record<AgentType, { cpus: number; memoryMb: number }> = {
-  "claude-code": { cpus: 0.5,  memoryMb: 512  },
-  codex:         { cpus: 0.5,  memoryMb: 512  },
-  opencode:      { cpus: 0.5,  memoryMb: 512  },
-  pi:            { cpus: 0.5,  memoryMb: 512  },
-  gemini:        { cpus: 0.5,  memoryMb: 512  },
-  openclaw:      { cpus: 0.5,  memoryMb: 512  },
-  nanoclaw:      { cpus: 0.25, memoryMb: 256  },
-  hermes:        { cpus: 0.5,  memoryMb: 512  },
-  moltis:        { cpus: 0.5,  memoryMb: 512  },
-  nemoclaw:      { cpus: 1.0,  memoryMb: 1024 },
+  "claude-code": { cpus: 1, memoryMb: 512  },
+  codex:         { cpus: 1, memoryMb: 512  },
+  opencode:      { cpus: 1, memoryMb: 512  },
+  pi:            { cpus: 1, memoryMb: 512  },
+  gemini:        { cpus: 1, memoryMb: 512  },
+  openclaw:      { cpus: 1, memoryMb: 512  },
+  nanoclaw:      { cpus: 1, memoryMb: 256  },
+  hermes:        { cpus: 1, memoryMb: 512  },
+  moltis:        { cpus: 1, memoryMb: 512  },
+  nemoclaw:      { cpus: 1, memoryMb: 1024 },
 };
 
 /** Recommended default resources per agent type (pre-filled in the hire wizard). */
@@ -97,7 +97,7 @@ export const AGENT_RESOURCE_DEFAULTS: Record<AgentType, { cpus: number; memoryMb
   pi:            { cpus: 1,   memoryMb: 1024 },
   gemini:        { cpus: 1,   memoryMb: 1024 },
   openclaw:      { cpus: 1,   memoryMb: 1024 },
-  nanoclaw:      { cpus: 0.5, memoryMb: 512  },
+  nanoclaw:      { cpus: 1,   memoryMb: 512  },
   hermes:        { cpus: 1,   memoryMb: 1024 },
   moltis:        { cpus: 1,   memoryMb: 1024 },
   nemoclaw:      { cpus: 2,   memoryMb: 2048 },

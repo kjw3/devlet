@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isStandardMemory } from "../resources.js";
 
 // ─── Platform Targets ────────────────────────────────────────────────────────
 
@@ -107,6 +108,11 @@ export const HireAgentInputSchema = AgentConfigSchema.omit({
   lastActiveAt: true,
   platform: true,
 }).extend({
+  // Keep stored legacy configs readable; new hires use portable resource sizes.
+  resources: ResourceLimitsSchema.extend({
+    cpus: z.number().int().positive(),
+    memoryMb: z.number().int().refine(isStandardMemory, "RAM must be a power of two in MB, starting at 128 MB"),
+  }),
   /** If set, bypasses the scheduler and forces this placement. */
   platformOverride: PlatformTargetSchema.optional(),
 });

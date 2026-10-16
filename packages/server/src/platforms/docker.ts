@@ -164,6 +164,8 @@ export async function probeDocker(): Promise<DockerStatus> {
       containers: { running, stopped, total },
       gpuAvailable: Boolean(info.Runtimes?.nvidia),
       architecture: normalizeArchitecture(info.Architecture),
+      coreCount: info.NCPU,
+      totalMemoryMb: Math.floor(info.MemTotal / 1024 / 1024),
     };
   } catch (error) {
     return {

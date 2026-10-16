@@ -21,6 +21,7 @@ interface ProxmoxApiNode {
   cpu: number;
   mem: number;
   maxmem: number;
+  maxcpu?: number;
 }
 
 interface ProxmoxApiNodeStatus {
@@ -95,6 +96,7 @@ export async function probeProxmox(): Promise<ProxmoxStatus> {
         name: n.node,
         status: n.status === "online" ? "online" : n.status === "offline" ? "offline" : "unknown",
         cpuUsage: n.cpu,
+        ...(n.maxcpu ? { coreCount: n.maxcpu } : {}),
         memoryUsed: Math.round(n.mem / 1024 / 1024),
         memoryTotal: Math.round(n.maxmem / 1024 / 1024),
         architecture: nodeArchitectures.get(n.node) ?? "unknown",

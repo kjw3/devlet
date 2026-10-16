@@ -15,10 +15,12 @@ interface PortainerApiEndpoint {
   Snapshots?: Array<{
     RunningContainerCount?: number;
     TotalMemory?: number;  // bytes
+    TotalCPU?: number;
     DockerSnapshotRaw?: {
       Info?: {
         Runtimes?: Record<string, unknown>;
         Architecture?: string;
+        NCPU?: number;
       };
     };
   }>;
@@ -70,6 +72,7 @@ export async function probePortainer(): Promise<PortainerStatus> {
         name: ep.Name,
         url: ep.URL,
         type: ep.Type,
+        coreCount: ep.Snapshots?.[0]?.DockerSnapshotRaw?.Info?.NCPU ?? ep.Snapshots?.[0]?.TotalCPU,
         status: ep.Status,
         ...(exclusions.portainerEndpoints.includes(String(ep.Id)) ||
         exclusions.portainerEndpoints.includes(ep.Name)

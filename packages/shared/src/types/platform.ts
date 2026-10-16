@@ -9,6 +9,8 @@ export type PlatformTarget =
 
 // Status shapes returned by platform health checks
 export interface DockerStatus {
+  coreCount?: number;
+  totalMemoryMb?: number;
   connected: boolean;
   /** False when the platform has no credentials/socket here; the UI hides it. Absent means configured. */
   configured?: boolean;
@@ -21,6 +23,7 @@ export interface DockerStatus {
 }
 
 export interface PortainerEndpoint {
+  coreCount?: number;
   id: number;
   name: string;
   url: string;
@@ -61,6 +64,7 @@ export interface DockerImage {
 }
 
 export interface ProxmoxNode {
+  coreCount?: number;
   name: string;
   status: "online" | "offline" | "unknown";
   cpuUsage: number;        // 0–1 fraction
