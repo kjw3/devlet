@@ -271,3 +271,17 @@ test("listHostpciInUse expands mapping= entries to the pinned device on the node
   const otherNode = await listHostpciInUse("pc1");
   assert.equal(otherNode.size, 0);
 });
+
+test("mappingCovers parses PVE property-string map entries (node=...,path=...)", async () => {
+  const { parsePciMapEntry } = await import("./proxmox-client.js");
+  // Real PVE 8.1+ entry format (verbatim from a live /cluster/mapping/pci):
+  const mapping = {
+    id: "nvidia-rtx-3090",
+    map: ["id=10de:2204,iommugroup=39,node=pc2,path=0000:02:00,subsystem-id=10de:147d"],
+  };
+  assert.equal(mappingCovers(mapping, "pc2", "0000:02:00.0"), true);
+  assert.equal(mappingCovers(mapping, "pc2", "0000:02:00"), true);
+  assert.equal(mappingCovers(mapping, "pc1", "0000:02:00.0"), false);
+  const parsed = parsePciMapEntry(mapping.map[0]!);
+  assert.deepEqual(parsed, { node: "pc2", path: "0000:02:00" });
+});

@@ -595,12 +595,8 @@ export async function listHostpciInUse(node: string): Promise<Map<string, string
   for (const m of await listPciMappings()) {
     const perNode = new Map<string, string>();
     for (const entry of m.map) {
-      // "<node>:<pci-id>[:<sub-id>]" — first colon only (ids contain colons)
-      const sep = entry.indexOf(":");
-      if (sep < 0) continue;
-      const entryNode = entry.slice(0, sep);
-      const entryId = entry.slice(sep + 1);
-      if (entryNode && entryId) perNode.set(entryNode, pciSlotKey(entryId));
+      const { node: entryNode, path } = parsePciMapEntry(entry);
+      if (entryNode && path) perNode.set(entryNode, pciSlotKey(path));
     }
     mappingIndex.set(m.id, perNode);
   }
@@ -665,19 +661,31 @@ export async function listPciMappings(): Promise<PciMapping[]> {
   }
 }
 
+/** Parse one PCI-mapping map entry. PVE stores property strings like
+ *  "id=10de:2204,iommugroup=39,node=pc2,path=0000:02:00,subsystem-id=10de:147d"
+ *  — node and path are what we match on. A "node:pci-id[:sub-id]" form is
+ *  accepted defensively. Pure and exported for tests. */
+export function parsePciMapEntry(entry: string): { node?: string; path?: string } {
+  const props = new Map<string, string>();
+  for (const part of entry.split(",")) {
+    const eq = part.indexOf("=");
+    if (eq > 0) props.set(part.slice(0, eq).trim(), part.slice(eq + 1).trim());
+  }
+  if (props.size > 0) return { node: props.get("node"), path: props.get("path") };
+  // Legacy/alternative "node:pci-id[:sub-id]" — first colon only (ids contain colons)
+  const sep = entry.indexOf(":");
+  if (sep < 0) return {};
+  return { node: entry.slice(0, sep), path: entry.slice(sep + 1) };
+}
+
 /** Does any map entry of this mapping cover the given device on the node?
- *  Pure and exported for tests. Entries may carry a sub-device suffix and the
- *  PCI id may be slot-only — both compared on the slot key. */
+ *  Pure and exported for tests. The PCI id may be slot-only — both sides are
+ *  compared on the slot key. */
 export function mappingCovers(mapping: PciMapping, node: string, pciId: string): boolean {
   const slot = pciSlotKey(pciId);
   return mapping.map.some((entry) => {
-    // Entry format is "<node>:<pci-id>[:<sub-id>]" — split on the FIRST colon
-    // only; the PCI id itself contains colons (0000:02:00.0).
-    const sep = entry.indexOf(":");
-    if (sep < 0) return false;
-    const entryNode = entry.slice(0, sep);
-    const entryId = entry.slice(sep + 1);
-    return entryNode === node && pciSlotKey(entryId) === slot;
+    const { node: entryNode, path } = parsePciMapEntry(entry);
+    return entryNode === node && path !== undefined && pciSlotKey(path) === slot;
   });
 }
 
