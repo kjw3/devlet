@@ -26,6 +26,7 @@ import {
   pvePutAsRoot,
   rootAuthHeaders,
   waitForTask,
+  gpuVramFloorMb,
   ProxmoxApiError,
   ProxmoxTaskError,
 } from "./proxmox-client.js";
@@ -697,6 +698,17 @@ async function createQemuGuest(
           ? `mapping=${mappedNames[i]!},pcie=1,rombar=0`
           : `${gpuIds[i]!},pcie=1,rombar=0`;
       }
+
+      // Passthrough RAM floor: guest RAM must be ≥ Σ VRAM of the passed
+      // cards, or the BAR mapping can break boot / allocation. The chosen
+      // devices' raw pciids give their VRAM (table lookup, conservative
+      // fallback); the floor only ever raises the requested memory.
+      const pciDevices = await listPciDevices(node);
+      const bySlot = new Map(pciDevices.map((d) => [pciSlotKey(d.id), d]));
+      const vramFloor = gpuVramFloorMb(
+        gpuIds.map((id) => bySlot.get(pciSlotKey(id))).filter((d) => d !== undefined)
+      );
+      if (vramFloor > memoryMb) configUpdate["memory"] = vramFloor;
     }
 
     // PVE restricts hostpci* (and args) to root@pam — API tokens of ordinary

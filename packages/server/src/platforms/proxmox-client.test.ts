@@ -285,3 +285,18 @@ test("mappingCovers parses PVE property-string map entries (node=...,path=...)",
   const parsed = parsePciMapEntry(mapping.map[0]!);
   assert.deepEqual(parsed, { node: "pc2", path: "0000:02:00" });
 });
+
+test("gpuVramFloorMb sums VRAM from raw pciids with a conservative fallback", async () => {
+  const { gpuVramFloorMb, GPU_VRAM_MIB_BY_PCIID } = await import("./proxmox-client.js");
+  assert.equal(gpuVramFloorMb([]), 0);
+  // RTX 3090 (the pc2 card) → 24 GiB
+  assert.equal(gpuVramFloorMb([{ pciid: "10de:2204" }]), 24576);
+  assert.equal(gpuVramFloorMb([{ pciid: "10DE:2204" }]), 24576); // case-insensitive
+  // 3090 + 4080 → 24 + 16 GiB
+  assert.equal(gpuVramFloorMb([{ pciid: "10de:2204" }, { pciid: "10de:2704" }]), 40960);
+  // unknown / missing pciid → conservative fallback, never zero
+  assert.equal(gpuVramFloorMb([{ pciid: "10de:ffff" }]), 8192);
+  assert.equal(gpuVramFloorMb([{}]), 8192);
+  // table sanity: fleet cards present
+  assert.equal(GPU_VRAM_MIB_BY_PCIID["10de:1d01"], 2048); // GT 1030
+});

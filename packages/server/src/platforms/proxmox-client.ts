@@ -510,9 +510,40 @@ export async function getStorageInfo(node: string, storage: string): Promise<Sto
 export interface PciDevice {
   id: string; // "0000:01:00.0"
   class: string; // "0x030000" (6 hex digits from the API)
+  /** Raw device id "vendor:device" (e.g. "10de:2204") — PVE's `pciid` field. */
+  pciid?: string;
   vendor_name?: string;
   device_name?: string;
   iommugroup?: number;
+}
+
+/** Known discrete-GPU VRAM sizes (MiB) by PCI device id ("vendor:device").
+ *  PVE's hardware/pci does not report VRAM, and passthrough guests need
+ *  guest RAM ≥ Σ VRAM so the GPU BARs always map (RAM < VRAM can break
+ *  boot or crash at allocation time). Unknown ids fall back conservatively. */
+export const GPU_VRAM_MIB_BY_PCIID: Record<string, number> = {
+  "10de:1d01": 2048, // GT 1030
+  "10de:1e07": 11264, // RTX 2080 Ti
+  "10de:20b0": 40960, // A100 40GB
+  "10de:2204": 24576, // RTX 3090
+  "10de:2206": 10240, // RTX 3080 10GB
+  "10de:2484": 8192, // RTX 3070
+  "10de:2503": 12288, // RTX 3060 12GB
+  "10de:2684": 24576, // RTX 4090
+  "10de:2704": 16384, // RTX 4080
+  "10de:2786": 12288, // RTX 4070 Super
+};
+export const GPU_VRAM_FALLBACK_MIB = 8192;
+
+/** Σ VRAM of the given devices (their raw "vendor:device" pciids) — the RAM
+ *  floor for a passthrough VM. Unknown or missing pciids count as the
+ *  conservative fallback so an unmapped card never undersizes the guest. */
+export function gpuVramFloorMb(devices: Array<{ pciid?: string | null }>): number {
+  let total = 0;
+  for (const d of devices ?? []) {
+    total += GPU_VRAM_MIB_BY_PCIID[(d.pciid ?? "").toLowerCase()] ?? GPU_VRAM_FALLBACK_MIB;
+  }
+  return total;
 }
 
 /** Display-controller base classes: VGA (0300), 3D (0302), Display (0380).
