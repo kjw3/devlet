@@ -11,6 +11,7 @@ import { initTRPC } from "@trpc/server";
 import { z } from "zod";
 import {
   HireAgentInputSchema,
+  PlatformTargetSchema,
   AgentStateSchema,
   UpdateMissionInputSchema,
   RecoverAgentInputSchema,
@@ -37,6 +38,8 @@ import type {
   PlatformExclusions,
   SshPublicKey,
 } from "./types/index.js";
+
+import type { DiskCapacity } from "./disk.js";
 
 const t = initTRPC.create();
 const router = t.router;
@@ -94,6 +97,7 @@ export const appRouter = router({
   }),
 
   platforms: router({
+    diskCapacity: publicProcedure.input(PlatformTargetSchema).query(unimplemented as () => DiskCapacity),
     docker: router({
       status: publicProcedure.query(unimplemented as () => DockerStatus),
       images: publicProcedure.query(unimplemented as () => DockerImage[]),

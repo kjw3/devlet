@@ -12,8 +12,10 @@ import {
   getResourceMinimum,
   resourceCapacityError,
   isStandardMemory,
+  diskSizeError,
 } from "@devlet/shared";
 import { PlacementPreview } from "../components/PlacementPreview.js";
+import { DiskControls } from "../components/DiskControls.js";
 import { ResourceControls } from "../components/ResourceControls.js";
 import { trpc } from "../trpc.js";
 
@@ -175,6 +177,7 @@ interface FormState {
   type: AgentType | "";
   cpus: number;
   memoryMb: number;
+  diskGb: number;
   gpuRequired: boolean;
   gpuMemoryMb: number;
   persistent: boolean;
@@ -227,6 +230,7 @@ export function HireAgent() {
     type: "",
     cpus: 1,
     memoryMb: 1024,
+    diskGb: 10,
     gpuRequired: false,
     gpuMemoryMb: 8192,
     persistent: false,
@@ -330,6 +334,21 @@ export function HireAgent() {
 
   const resolvedPlatform = form.platformOverride ?? schedulerDecision?.placement;
 
+  const diskQuery = trpc.platforms.diskCapacity.useQuery(resolvedPlatform ?? { type: "docker" }, {
+    enabled: !!resolvedPlatform, refetchInterval: 10_000, staleTime: 5_000,
+  });
+  const diskCapacity = diskQuery.data;
+  const diskMinimum = diskCapacity?.minimumGb ?? 10;
+  useEffect(() => {
+    setForm(current => current.diskGb < diskMinimum ? { ...current, diskGb: diskMinimum } : current);
+  }, [diskMinimum]);
+  const diskError = resolvedPlatform?.type === "proxmox"
+    ? diskQuery.error ? "Cannot refresh disk capacity; retry before hiring"
+      : diskCapacity ? diskSizeError(form.diskGb, diskCapacity) : "Checking disk capacity…"
+    : undefined;
+  const requestedResources = { cpus: form.cpus, memoryMb: form.memoryMb,
+    ...(resolvedPlatform?.type === "proxmox" ? { storageMb: form.diskGb * 1024 } : {}) };
+
   const capacity = getHostCapacity(resolvedPlatform, liveContext);
   const minimum = form.type ? getResourceMinimum(form.type, resolvedPlatform) : { cpus: 1, memoryMb: 512 };
   useEffect(() => {
@@ -341,14 +360,15 @@ export function HireAgent() {
     : !isStandardMemory(form.memoryMb) || form.memoryMb < minimum.memoryMb
     ? `Choose a standard RAM size of at least ${minimum.memoryMb} MB`
     : resourceCapacityError(form, capacity);
-  const resourceControls = <ResourceControls
+  const resourceControls = <><ResourceControls
     cpus={form.cpus} memoryMb={form.memoryMb} minimum={minimum} capacity={capacity}
     onCpu={n => update("cpus", n)} onMemory={n => update("memoryMb", n)} error={resourceError}
     guestType={resolvedPlatform?.type === "proxmox" ? resolvedPlatform.vmType : undefined}
-  />;
+  /><DiskControls gb={form.diskGb} capacity={diskCapacity} loading={diskQuery.isLoading}
+    error={diskError} onChange={n => update("diskGb", n)} /></>;
 
   function deploy() {
-    if (form.type === "" || resourceError) return;
+    if (form.type === "" || resourceError || diskError) return;
     const type = form.type as AgentType;
 
     if (form.mode === "single-task") {
@@ -362,10 +382,10 @@ export function HireAgent() {
           steps: [],
           onComplete: "terminate",
         },
-        resources: { cpus: form.cpus, memoryMb: form.memoryMb },
+        resources: requestedResources,
         env: form.tailnet ? {} : { DEVLET_TAILSCALE: "false" },
         persistent: false,
-        ...(form.platformOverride ? { platformOverride: form.platformOverride } : {}),
+        ...(resolvedPlatform ? { platformOverride: resolvedPlatform } : {}),
       });
     } else {
       hireMutation.mutate({
@@ -377,11 +397,11 @@ export function HireAgent() {
           steps: [],
           onComplete: "idle",
         },
-        resources: { cpus: form.cpus, memoryMb: form.memoryMb },
+        resources: requestedResources,
         ...(form.gpuRequired ? { gpu: { required: true, memoryMb: form.gpuMemoryMb } } : {}),
         env: form.tailnet ? {} : { DEVLET_TAILSCALE: "false" },
         persistent: form.persistent,
-        ...(form.platformOverride ? { platformOverride: form.platformOverride } : {}),
+        ...(resolvedPlatform ? { platformOverride: resolvedPlatform } : {}),
       });
     }
   }
@@ -793,7 +813,7 @@ export function HireAgent() {
             {step === "review" ? (
               <button
                 className="btn-primary"
-                disabled={hireMutation.isPending || Boolean(resourceError) || platformsLoading}
+                disabled={hireMutation.isPending || Boolean(resourceError) || Boolean(diskError) || platformsLoading}
                 onClick={deploy}
               >
                 {hireMutation.isPending ? "deploying..." : "deploy agent →"}

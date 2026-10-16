@@ -25,6 +25,12 @@ it("bootstrap locks before installation and retains existing containers before p
   assert.ok(script.indexOf("docker pull") < script.indexOf("docker run"));
   assert.ok(!script.includes("docker rm"));
   assert.ok(!script.includes("docker start"));
+  const vmScript = await buildBootstrapScript({ ...config, platform: { type: "proxmox", node: "n", vmType: "qemu" }, resources: { cpus: 1, memoryMb: 2048, storageMb: 32768 } });
+  assert.ok(vmScript.includes("growpart"));
+  assert.ok(vmScript.includes("resize2fs"));
+  assert.ok(vmScript.includes("xfs_growfs"));
+  assert.ok(vmScript.indexOf("Root filesystem did not grow") < vmScript.indexOf("docker run"));
+  assert.ok(vmScript.includes(String(Math.floor(32 * 1024 ** 3 * 0.85))));
 });
 
 const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/;

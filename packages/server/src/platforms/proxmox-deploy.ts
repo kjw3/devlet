@@ -1,4 +1,4 @@
-import { getResourceMinimum, type AgentConfig } from "@devlet/shared";
+import { getResourceMinimum, templateDiskGb, type AgentConfig } from "@devlet/shared";
 import { randomBytes } from "node:crypto";
 import { inspectGuestRuntime } from "./proxmox-runtime.js";
 import { config } from "../config.js";
@@ -119,13 +119,12 @@ async function resizeQemuRootDisk(
   cloneConfig: Record<string, unknown> | null,
   diskGb: number
 ): Promise<void> {
-  if (!cloneConfig) return; // cannot determine the root disk — skip
+  if (!cloneConfig) throw new Error("Cannot determine clone root disk");
   const rootDiskKey = ["scsi0", "virtio0", "sata0", "ide0"].find(
     (k) => typeof cloneConfig[k] === "string"
   );
-  if (!rootDiskKey) return;
-  const match = String(cloneConfig[rootDiskKey]).match(/size=(\d+(?:\.\d+)?)G/i);
-  const currentGb = match ? Math.ceil(parseFloat(match?.[1] ?? "0")) : 0;
+  if (!rootDiskKey) throw new Error("Cannot determine clone root disk");
+  const currentGb = templateDiskGb(cloneConfig);
   if (diskGb <= currentGb) return;
   await pvePut(`/nodes/${encodeURIComponent(node)}/qemu/${vmid}/resize`, {
     disk: rootDiskKey,
@@ -166,6 +165,27 @@ flock -w 660 9 || { echo "[devlet] another bootstrap is still running"; exit 1; 
 if command -v cloud-init >/dev/null 2>&1; then
   timeout 300 cloud-init status --wait >/dev/null 2>&1 || true
 fi
+
+${agentConfig.platform.type === "proxmox" && agentConfig.platform.vmType === "qemu" ? `
+# Cloud-init normally grows Ubuntu cloud-image roots. Explicitly grow the
+# supported partition/filesystem layout and verify before launching the agent.
+rootdev=$(findmnt -n -o SOURCE /)
+fstype=$(findmnt -n -o FSTYPE /)
+parent=$(lsblk -no PKNAME "$rootdev" | head -1)
+part=$(cat "/sys/class/block/$(basename "$(readlink -f "$rootdev")")/partition" 2>/dev/null || true)
+if [ -n "$parent" ] && [ -n "$part" ]; then
+  command -v growpart >/dev/null || apt-get install -y -qq cloud-guest-utils >/dev/null
+  growpart "/dev/$parent" "$part" || [ $? -eq 1 ]
+  case "$fstype" in
+    ext4|ext3|ext2) resize2fs "$rootdev" ;;
+    xfs) xfs_growfs / ;;
+    *) echo "Unsupported root filesystem: $fstype"; exit 1 ;;
+  esac
+fi
+# Filesystem metadata and boot partitions consume part of the virtual disk.
+rootbytes=$(df -B1 --output=size / | tail -1 | tr -d ' ')
+[ "$rootbytes" -ge ${Math.floor(guestResources(agentConfig).diskGb * 1024 ** 3 * 0.85)} ] || { echo "Root filesystem did not grow to the requested disk budget; check template partition/LVM layout"; exit 1; }
+` : ""}
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "[devlet] installing Docker on guest..."
@@ -339,7 +359,7 @@ async function destroyGuest(node: string, vmType: "lxc" | "qemu", vmid: number):
 
 // ─── Create: LXC + QEMU paths ──────────────────────────────────────────────────
 
-async function findTemplateNode(templateId: number): Promise<string | null> {
+export async function findTemplateNode(templateId: number): Promise<string | null> {
   try {
     const guests = await listClusterGuests();
     return guests.find((g) => g.vmid === templateId && g.template === 1)?.node ?? null;
@@ -414,7 +434,7 @@ async function createLxcGuest(
  * When the resolved storage equals the template's disk storage the clone is
  * linked; put the template on ceph-vms to get instant linked clones.
  */
-async function resolveQemuCloneStorage(
+export async function resolveQemuCloneStorage(
   templateNode: string,
   targetNode: string
 ): Promise<{ storage: string; linked: boolean }> {
@@ -644,6 +664,12 @@ export async function createProxmoxGuest(agentConfig: AgentConfig, recoveringPro
   if (!targetNode) {
     throw new Error("No Proxmox node selected (platform placement is missing a node)");
   }
+
+  // Recheck current free space immediately before allocation. Existing guests
+  // bypass this: recovery must not attempt to resize an already-running disk.
+  const { validateDisk } = await import("./disk.js");
+  const storageMb = await validateDisk(agentConfig.platform, agentConfig.resources.storageMb, agentConfig.id);
+  if (storageMb !== undefined) agentConfig.resources.storageMb = storageMb;
 
   let created = false;
   const markCreated = (): void => {

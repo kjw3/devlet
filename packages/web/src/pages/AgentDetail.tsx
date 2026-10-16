@@ -508,7 +508,7 @@ export function AgentDetail() {
               <InfoRow label="type" value={AGENT_TYPE_LABELS[config.type]} />
               <InfoRow label="platform" value={PLATFORM_LABELS[config.platform.type]} />
               <InfoRow label="role" value={config.role} />
-              <InfoRow label="resources" value={`${config.resources.cpus} CPU · ${config.resources.memoryMb}MB RAM`} />
+              <InfoRow label="resources" value={`${config.resources.cpus} CPU · ${config.resources.memoryMb}MB RAM${config.resources.storageMb !== undefined ? ` · ${config.resources.storageMb / 1024} GB disk` : ""}`} />
               <InfoRow label="persistent" value={config.persistent ? "yes" : "no"} />
               <InfoRow label="platform ref" value={agent.platformRef || "—"} />
               <InfoRow label="created" value={new Date(config.createdAt).toLocaleString()} />

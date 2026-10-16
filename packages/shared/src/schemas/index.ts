@@ -111,6 +111,7 @@ export const HireAgentInputSchema = AgentConfigSchema.omit({
   // Keep stored legacy configs readable; new hires use portable resource sizes.
   resources: ResourceLimitsSchema.extend({
     cpus: z.number().int().positive(),
+    storageMb: z.number().int().positive().multipleOf(1024, "Disk size must be a whole number of GB").optional(),
     memoryMb: z.number().int().refine(isStandardMemory, "RAM must be a power of two in MB, starting at 128 MB"),
   }),
   /** If set, bypasses the scheduler and forces this placement. */

@@ -1,6 +1,7 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import {
   scheduleAgent,
+  PlatformTargetSchema,
   getHostCapacity,
   getResourceMinimum,
   resourceCapacityError,
@@ -25,6 +26,8 @@ import {
   type PlatformTarget,
   type ResourceLimits,
 } from "@devlet/shared";
+import { getDiskCapacity } from "../platforms/disk.js";
+import { admitAgent } from "../agents/disk-admission.js";
 import { randomUUID, timingSafeEqual } from "crypto";
 import { z } from "zod";
 import { AddSshKeyInputSchema } from "@devlet/shared";
@@ -724,7 +727,11 @@ export const appRouter = t.router({
           logs: ["Agent registered — awaiting provisioning"],
         };
 
-        await saveAgentState(state);
+        try {
+          await admitAgent(state);
+        } catch (error) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? error.message : "Disk admission failed" });
+        }
 
         // Provision asynchronously so hire returns immediately
         provisionAgent(config)
@@ -840,6 +847,7 @@ export const appRouter = t.router({
   }),
 
   platforms: t.router({
+    diskCapacity: authProcedure.input(PlatformTargetSchema).query(({ input }) => getDiskCapacity(normalizePlatformTarget(input))),
     docker: t.router({
       status: authProcedure.query(async () => probeDocker()),
       images: authProcedure.query(async () => listImages()),

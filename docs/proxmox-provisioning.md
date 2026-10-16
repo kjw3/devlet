@@ -46,6 +46,27 @@ task or erase its workspace. Recovery failures become visible errors and retain
 existing guests for inspection. The Komodo deployment script refuses deployment
 while any agent is provisioning; this preflight is not an atomic deployment lock.
 
+**Disk sizing (new hires).** Both hire modes accept whole GB (1 GB = 1,024 MB).
+LXC requires 10 GB; QEMU requires at least 20 GB or the template root-disk size,
+whichever is larger. The capacity endpoint resolves the actual rootfs/clone
+storage and reads its current available bytes. The maximum subtracts
+`DEVLET_DISK_RESERVE_GB` (default 10 GB) and persisted provisioning reservations.
+Shared storage is keyed by storage ID across nodes. Admission is serialized in
+the single Devlet server process; free space is checked again before creation.
+Unknown capacity blocks provisioning rather than permitting an unlimited disk.
+Thin/linked clones are budgeted conservatively at their full virtual size during
+provisioning; these are not permanent physical-space reservations. Other users
+can still consume storage between checks. Multiple Devlet server replicas would
+require a distributed admission lock.
+
+QEMU root partitions/filesystems are grown and checked before launching the
+agent. Supported automatic growth is for conventional ext/XFS partitions;
+custom LVM/encrypted layouts that do not grow via cloud-init fail the size check
+rather than silently launching with an undersized filesystem. Existing guests
+are not resized by this feature. Docker/Portainer/Komodo have no verified quota
+configuration in this implementation: the UI explicitly marks disk limits
+unavailable and API requests for disk quotas on them are rejected, never ignored.
+
 **D2 — Guest bootstrap over SSH.** The PVE API has no exec endpoint. Devlet generates a
 dedicated provisioning keypair once (stored in `~/.devlet/proxmox-provision-key`, like
 `ssh/keyStore.ts`), injects the public key at LXC create (`ssh-public-keys` param) and
