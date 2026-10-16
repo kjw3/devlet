@@ -15,6 +15,7 @@ import {
   diskSizeError,
 } from "@devlet/shared";
 import { PlacementPreview } from "../components/PlacementPreview.js";
+import { useNumberDraft } from "../lib/number-input.js";
 import { DiskControls } from "../components/DiskControls.js";
 import { ResourceControls } from "../components/ResourceControls.js";
 import { trpc, trpcInventory } from "../trpc.js";
@@ -369,6 +370,7 @@ export function HireAgent() {
     : !isStandardMemory(form.memoryMb) || form.memoryMb < minimum.memoryMb
     ? `Choose a standard RAM size of at least ${minimum.memoryMb} MB`
     : resourceCapacityError(form, capacity);
+  const gpuMemoryInput = useNumberDraft(form.gpuMemoryMb, n => update("gpuMemoryMb", n));
   const resourceControls = <><ResourceControls
     cpus={form.cpus} memoryMb={form.memoryMb} minimum={minimum} capacity={capacity}
     onCpu={n => update("cpus", n)} onMemory={n => update("memoryMb", n)} error={resourceError}
@@ -735,8 +737,9 @@ export function HireAgent() {
                             min={1024}
                             max={81920}
                             step={1024}
-                            value={form.gpuMemoryMb}
-                            onChange={(e) => update("gpuMemoryMb", Number(e.target.value))}
+                            value={gpuMemoryInput.value}
+                            onChange={gpuMemoryInput.onChange}
+                            onBlur={gpuMemoryInput.onBlur}
                             className="w-40 bg-surface border border-surface-border rounded-sm px-3 py-1.5 text-[13px] text-gray-100 focus:outline-none focus:border-accent-cyan/50"
                           />
                         </div>

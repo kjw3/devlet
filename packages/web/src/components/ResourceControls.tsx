@@ -1,4 +1,5 @@
 import { memoryOptions, type HostCapacity } from "@devlet/shared";
+import { useNumberDraft } from "../lib/number-input.js";
 
 export function ResourceControls({ cpus, memoryMb, minimum, capacity, onCpu, onMemory, error, guestType }: {
   cpus: number; memoryMb: number; minimum: { cpus: number; memoryMb: number };
@@ -8,13 +9,14 @@ export function ResourceControls({ cpus, memoryMb, minimum, capacity, onCpu, onM
   // Unknown capacity is explicitly labelled, never treated as zero or a host limit.
   const ram = memoryOptions(minimum.memoryMb, capacity.memoryMb ?? 1048576);
   const cpuMin = Math.max(1, Math.ceil(minimum.cpus));
+  const cpuInput = useNumberDraft(cpus, onCpu);
   return (
     <div className="mb-4">
       <div className="label mb-2">resource limits</div>
       <div className="grid grid-cols-2 gap-3">
         <label className="text-[11px] text-gray-500">CPUs
           <input aria-label="CPUs" type="number" min={cpuMin} max={capacity.cpus} step={1}
-            value={cpus} onChange={e => onCpu(Number(e.target.value))}
+            value={cpuInput.value} onChange={cpuInput.onChange} onBlur={cpuInput.onBlur}
             className="block w-full bg-surface border border-surface-border rounded-sm px-3 py-2 text-[13px] text-gray-100" />
           <span>Whole cores · min {cpuMin}{capacity.cpus ? ` · host max ${capacity.cpus}` : " · host capacity unknown"}</span>
         </label>
