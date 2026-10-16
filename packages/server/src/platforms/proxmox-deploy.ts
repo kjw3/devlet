@@ -46,7 +46,7 @@ export function buildHostpciEntries(deviceIds: string[]): Array<[string, string]
 // platforms inject (D1). Guest commands run over SSH with the Devlet
 // provisioning key (D2). Ports are fixed per guest, so no allocation race (D4).
 
-const GUEST_IP_TIMEOUT_MS = 3 * 60 * 1000;
+const GUEST_IP_TIMEOUT_MS = 5 * 60 * 1000;
 const GUEST_IP_POLL_MS = 3_000;
 const BOOTSTRAP_TIMEOUT_MS = 12 * 60 * 1000;
 
@@ -293,15 +293,28 @@ async function bootstrapGuest(agentConfig: AgentConfig, ip: string): Promise<voi
 
 async function waitGuestIp(node: string, vmType: "lxc" | "qemu", vmid: number): Promise<string> {
   const deadline = Date.now() + GUEST_IP_TIMEOUT_MS;
+  // qemu-guest-agent availability, for a sharper timeout message
+  let agentEverAnswered = false;
   for (;;) {
     const ip =
       vmType === "lxc" ? await getLxcGuestIp(node, vmid) : await getQemuGuestIp(node, vmid);
     if (ip) return ip;
+    if (vmType === "qemu" && !agentEverAnswered) {
+      try {
+        await pveGet(`/nodes/${encodeURIComponent(node)}/qemu/${vmid}/agent/ping`);
+        agentEverAnswered = true;
+      } catch {
+        // agent not up yet — keep polling
+      }
+    }
     if (Date.now() > deadline) {
       throw new Error(
         `Timed out waiting for a guest IP on ${node} (${vmType} ${vmid}).` +
           (vmType === "qemu"
-            ? " Ensure the QEMU template runs qemu-guest-agent and has agent: 1 enabled."
+            ? agentEverAnswered
+              ? " The guest agent answers but reports no IPv4 — check DHCP on the guest's bridge/VLAN (tag)."
+              : " Ensure the QEMU template runs qemu-guest-agent and has agent: 1 enabled; " +
+                "also check the guest actually booted (console) and DHCP is reachable."
             : "")
       );
     }
