@@ -61,18 +61,10 @@ export const queryClient = new QueryClient({
 });
 
 export function TrpcProvider({ children }: { children: React.ReactNode }) {
+  // Providers nest (not siblings) — children must render exactly once with
+  // BOTH lanes' contexts in scope. Two siblings would render the app twice.
   return React.createElement(
-    React.Fragment,
-    null,
-    React.createElement(trpc.Provider, {
-      client: trpcClient,
-      queryClient,
-      children,
-    }),
-    React.createElement(trpcInventory.Provider, {
-      client: trpcInventoryClient,
-      queryClient,
-      children,
-    })
+    trpcInventory.Provider,
+    { client: trpcInventoryClient, queryClient, children: React.createElement(trpc.Provider, { client: trpcClient, queryClient, children }) }
   );
 }
