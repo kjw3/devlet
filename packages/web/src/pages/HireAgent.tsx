@@ -228,6 +228,7 @@ function StepIndicator({ current }: { current: Step }) {
 export function HireAgent() {
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>("mission");
+  const [hireError, setHireError] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>({
     mode: "single-task",
     taskDescription: "",
@@ -301,6 +302,11 @@ export function HireAgent() {
 
   const utils = trpc.useUtils();
   const hireMutation = trpc.agents.hire.useMutation({
+    onError: (err) => {
+      // Surface server rejections (admission, placement, GPU preconditions) —
+      // without this the wizard button spins and silently resets.
+      setHireError(err.message.replace(/^\[\d{4}-\d{2}-\d{2}.*?\]\s*/, ""));
+    },
     onSuccess: (state) => {
       // Seed the list cache with the freshly registered agent and go straight
       // to its detail page — provisioning continues server-side and the detail
@@ -406,6 +412,7 @@ export function HireAgent() {
 
   function deploy() {
     if (form.type === "" || resourceError || diskError) return;
+    setHireError(null);
     const type = form.type as AgentType;
 
     if (form.mode === "single-task") {
@@ -849,6 +856,12 @@ export function HireAgent() {
                   <span className="text-[11px] text-gray-600">
                     — agent joins your Tailscale network (SSH + web terminal) while it is running
                   </span>
+                </div>
+              )}
+
+              {hireError && (
+                <div className="mb-4 border border-status-error/40 bg-status-error/10 text-status-error text-[11px] px-3 py-2 rounded">
+                  deploy failed — {hireError}
                 </div>
               )}
 

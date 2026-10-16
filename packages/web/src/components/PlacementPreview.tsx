@@ -119,8 +119,12 @@ export function listPlatformGroups(ctx: SchedulerContext, reqs: PlacementRequire
           platform: { type: "proxmox", node: n.name, vmType },
           key: `proxmox:${n.name}`,
           name: n.name,
-          gpu: (n.gpuCount ?? 0) > 0,
-          reason: fit(proxmox.connected && n.status === "online", n.excluded, (n.gpuCount ?? 0) > 0),
+          gpu: n.gpuDevices?.length ? n.gpuDevices.some((d) => !d.busy) : (n.gpuCount ?? 0) > 0,
+          reason: fit(
+            proxmox.connected && n.status === "online",
+            n.excluded,
+            n.gpuDevices?.length ? n.gpuDevices.some((d) => !d.busy) : (n.gpuCount ?? 0) > 0
+          ),
         })
       ),
     });

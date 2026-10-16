@@ -22,6 +22,7 @@ import type {
   PlatformArchitecture,
   PortainerStatus,
   ProxmoxStatus,
+  ProxmoxNode,
   KomodoStatus,
   PlatformTarget,
 } from "./types/platform.js";
@@ -355,7 +356,14 @@ function scoreProxmox(
   const onlineNodes = status.connected
     ? status.nodes.filter((n) => n.status === "online" && !n.excluded)
     : [];
-  const gpuNodes = onlineNodes.filter((n) => (n.gpuCount ?? 0) > 0);
+  // Passthrough is exclusive: a GPU claimed by another VM's hostpci config is
+  // NOT available, even when the holding VM is stopped (restarting it would
+  // conflict). Nodes without per-device busy data fall back to gpuCount.
+  const freeGpuCount = (n: ProxmoxNode): number =>
+    n.gpuDevices && n.gpuDevices.length > 0
+      ? n.gpuDevices.filter((d) => !d.busy).length
+      : (n.gpuCount ?? 0);
+  const gpuNodes = onlineNodes.filter((n) => freeGpuCount(n) > 0);
 
   // Find the best-fit node: most free memory, GPU if needed
   const nodePool = selectHostPool(onlineNodes, gpuNodes, reqs.gpu?.required ?? false);
@@ -414,8 +422,9 @@ function scoreProxmox(
   // GPU fit (40 pts — VM passthrough is the strongest GPU isolation option)
   if (reqs.gpu?.required && gpuNodes.length > 0) {
     score += 40;
+    const free = freeGpuCount(gpuNodes[0]!);
     reasons.push(
-      `GPU passthrough via VM on node "${targetNode!.name}" (${gpuNodes[0]!.gpuCount} device${(gpuNodes[0]!.gpuCount ?? 1) > 1 ? "s" : ""})`
+      `GPU passthrough via VM on node "${targetNode!.name}" (${free} free device${free === 1 ? "" : "s"})`
     );
   }
 

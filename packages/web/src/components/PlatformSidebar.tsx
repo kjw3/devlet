@@ -141,7 +141,11 @@ function ProxmoxPanel({ status, loading }: { status?: ProxmoxStatus; loading: bo
                 >
                   {node.excluded ? "include" : "exclude"}
                 </button>
-                <HostHardware architecture={node.architecture} gpuCount={node.gpuCount} />
+                <HostHardware
+                  architecture={node.architecture}
+                  gpuCount={node.gpuCount}
+                  gpuBusyCount={node.gpuDevices?.filter((d) => d.busy).length}
+                />
                 <span className={`status-dot flex-shrink-0 ${node.status === "online" ? "bg-status-running" : "bg-status-error"}`} />
               </div>
             </div>

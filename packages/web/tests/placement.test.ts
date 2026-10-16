@@ -38,3 +38,41 @@ test("scheduler uses LXC for single tasks and CPU long running agents", () => {
       { type: "proxmox", node: "included", vmType: "lxc" });
   }
 });
+
+const gpuContext: SchedulerContext = {
+  docker: null, portainer: null, komodo: null,
+  proxmox: { connected: true, nodes: [
+    // Only GPU is claimed by another VM's hostpci config — NOT available.
+    { name: "allbusy", status: "online", cpuUsage: 0, memoryUsed: 0, memoryTotal: 65536,
+      gpuCount: 1, gpuDevices: [{ id: "0000:02:00.0", model: "RTX 3090", busy: true }] },
+    // Has a genuinely free GPU.
+    { name: "freegpu", status: "online", cpuUsage: 0, memoryUsed: 0, memoryTotal: 65536,
+      gpuCount: 2, gpuDevices: [{ id: "0000:41:00.0", model: "RTX 4090", busy: true },
+        { id: "0000:42:00.0", model: "RTX 4090", busy: false }] },
+  ] },
+};
+test("GPU-required placement skips nodes whose GPUs are all claimed", () => {
+  const req: PlacementRequirements = {
+    type: "pi", resources: { cpus: 1, memoryMb: 1024 }, persistent: true, onComplete: "idle",
+    gpu: { required: true },
+  };
+  const decision = scheduleAgent(req, gpuContext);
+  assert.deepEqual(decision.placement, { type: "proxmox", node: "freegpu", vmType: "qemu" });
+});
+test("busy-only GPU node is not offered for GPU hires", () => {
+  const req: PlacementRequirements = {
+    type: "pi", resources: { cpus: 1, memoryMb: 1024 }, persistent: true, onComplete: "idle",
+    gpu: { required: true },
+  };
+  const groups = listPlatformGroups(gpuContext, req).filter((g) => g.type === "proxmox");
+  const candidates = groups[0]!.candidates;
+  const allbusy = candidates.find((c) => c.name === "allbusy")!;
+  assert.equal(allbusy.available, false);
+});
+test("claimed GPU still counts for non-GPU hires (cpu placement unaffected)", () => {
+  const req: PlacementRequirements = {
+    type: "pi", resources: { cpus: 1, memoryMb: 1024 }, persistent: true, onComplete: "idle",
+  };
+  const decision = scheduleAgent(req, gpuContext);
+  assert.equal(decision.placement.type, "proxmox");
+});

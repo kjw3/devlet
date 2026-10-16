@@ -201,6 +201,12 @@ failed), the assignment falls back to "all".
   hire time (including auto-assignment: a node whose every GPU is already
   passed through fails the hire instead of the VM start), and each selected
   GPU maps onto `hostpci0`–`hostpci3` (max 4).
+  "Busy" means the device appears in any VM's `hostpci*` config — **even when
+  the holding VM is stopped** (starting it later would conflict). To free a
+  GPU, remove the passthrough from the holding VM (`qm set <vmid> --delete
+  hostpci0` on the node); the scheduler then sees it as free. The scheduler
+  and the placement preview count only *free* GPUs for GPU-required hires —
+  a fully-claimed node is skipped rather than recommended-and-rejected.
 
 Selections are re-validated against fresh probe data at hire time; a stale UI
 selection fails with `PRECONDITION_FAILED` instead of deploying a broken agent.
