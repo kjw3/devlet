@@ -9,6 +9,8 @@ export interface GpuDeviceInfo {
   model?: string;
   /** Proxmox only: already passed through to another VM. */
   busy?: boolean;
+  /** VRAM in MiB (lookup-table estimate for Proxmox passthrough RAM floors). */
+  vramMb?: number;
 }
 
 export type PlatformTarget =

@@ -392,16 +392,29 @@ export function HireAgent() {
   const requestedResources = { cpus: form.cpus, memoryMb: form.memoryMb,
     ...(resolvedPlatform?.type === "proxmox" ? { storageMb: form.diskGb * 1024 } : {}) };
 
+  // Proxmox passthrough needs guest RAM ≥ Σ VRAM of the pinned GPUs (BAR
+  // mapping breaks below that), so mirror the deploy-time floor in the form:
+  // auto-raise RAM when GPU devices are selected on a pinned Proxmox host.
+  const vramFloorMb = resolvedPlatform?.type === "proxmox"
+    ? hostGpuDevices.filter(d => form.gpuDevices.includes(d.id)).reduce((sum, d) => sum + (d.vramMb ?? 0), 0)
+    : 0;
+  useEffect(() => {
+    setForm(current => current.memoryMb < vramFloorMb ? { ...current, memoryMb: vramFloorMb } : current);
+  }, [vramFloorMb]);
+
   const capacity = getHostCapacity(resolvedPlatform, liveContext);
   const minimum = form.type ? getResourceMinimum(form.type, resolvedPlatform) : { cpus: 1, memoryMb: 512 };
+  const effectiveMinMemory = Math.max(minimum.memoryMb, vramFloorMb);
   useEffect(() => {
-    setForm(current => current.memoryMb < minimum.memoryMb
-      ? { ...current, memoryMb: minimum.memoryMb } : current);
-  }, [minimum.memoryMb]);
+    setForm(current => current.memoryMb < effectiveMinMemory
+      ? { ...current, memoryMb: effectiveMinMemory } : current);
+  }, [effectiveMinMemory]);
   const resourceError = !Number.isInteger(form.cpus) || form.cpus < Math.ceil(minimum.cpus)
     ? `Choose at least ${Math.ceil(minimum.cpus)} whole CPU core(s)`
-    : !isStandardMemory(form.memoryMb) || form.memoryMb < minimum.memoryMb
-    ? `Choose a standard RAM size of at least ${minimum.memoryMb} MB`
+    : !isStandardMemory(form.memoryMb) || form.memoryMb < effectiveMinMemory
+    ? vramFloorMb > minimum.memoryMb && form.memoryMb < vramFloorMb
+      ? `The pinned GPU(s) need at least ${vramFloorMb} MB RAM (VRAM + BAR headroom)`
+      : `Choose a standard RAM size of at least ${effectiveMinMemory} MB`
     : resourceCapacityError(form, capacity);
   const resourceControls = <><ResourceControls
     cpus={form.cpus} memoryMb={form.memoryMb} minimum={minimum} capacity={capacity}

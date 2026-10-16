@@ -588,7 +588,9 @@ export async function firstGpuPciId(node: string): Promise<string | null> {
 }
 
 /** All GPU-class PCI devices on a node with passthrough availability — what
- *  the hire-time GPU selector offers for Proxmox hosts. */
+ *  the hire-time GPU selector offers for Proxmox hosts. vramMb comes from the
+ *  PCI device-id table (PVE doesn't report VRAM); it drives the passthrough
+ *  RAM floor shown in the wizard and applied at clone time. */
 export async function listGpuDevices(node: string): Promise<GpuDeviceInfo[]> {
   const [devices, inUse] = await Promise.all([listPciDevices(node), listHostpciInUse(node)]);
   return devices
@@ -596,6 +598,7 @@ export async function listGpuDevices(node: string): Promise<GpuDeviceInfo[]> {
     .map((g) => ({
       id: g.id,
       model: g.device_name,
+      vramMb: GPU_VRAM_MIB_BY_PCIID[(g.pciid ?? "").toLowerCase()] ?? GPU_VRAM_FALLBACK_MIB,
       ...(inUse.has(pciSlotKey(g.id)) ? { busy: true } : {}),
     }));
 }
