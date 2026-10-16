@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { DockerStatus, KomodoStatus, PortainerStatus, ProxmoxStatus } from "@devlet/shared";
-import { resolveHostGpuDevices, validateGpuDeviceIds } from "./gpu-selection.js";
+import { countGpuClaims, pickDefaultGpuDevices, resolveHostGpuDevices, validateGpuDeviceIds } from "./gpu-selection.js";
 import { gpuRunArg } from "./hardware.js";
 import { buildHostpciEntries, MAX_HOSTPCI_DEVICES } from "./proxmox-deploy.js";
 
@@ -112,4 +112,39 @@ test("resolveHostGpuDevices tolerates Docker hosts without enumerable GPUs", () 
   });
   assert.equal(devices.ok, true);
   assert.deepEqual(devices.devices, []);
+});
+
+test("countGpuClaims counts active agents per device, per host, skipping dead ones", () => {
+  const agent = (id: string, platform: any, gpuDevices: string[] | undefined, status: any) => ({
+    config: { id, platform, ...(gpuDevices ? { gpu: { required: true, devices: gpuDevices } } : {}) },
+    status,
+  });
+  const states = [
+    agent("a", { type: "komodo", serverId: "srv-02" }, ["GPU-aaa"], "running"),
+    agent("b", { type: "komodo", serverId: "srv-02" }, ["GPU-aaa", "GPU-bbb"], "provisioning"),
+    agent("c", { type: "komodo", serverId: "srv-02" }, ["GPU-ccc"], "terminated"),
+    agent("d", { type: "komodo", serverId: "other" }, ["GPU-aaa"], "running"),
+    agent("e", { type: "docker" }, ["GPU-aaa"], "running"),
+  ];
+  const claims = countGpuClaims(states, { type: "komodo", serverId: "srv-02" });
+  assert.equal(claims.get("GPU-aaa"), 2);
+  assert.equal(claims.get("GPU-bbb"), 1);
+  assert.equal(claims.has("GPU-ccc"), false); // terminated agents release claims
+  assert.equal(claims.size, 2);
+});
+
+test("pickDefaultGpuDevices: least-claimed GPU wins on container platforms", () => {
+  const inventory = [{ id: "GPU-aaa" }, { id: "GPU-bbb" }];
+  const claims = new Map([["GPU-aaa", 2]]);
+  assert.deepEqual(pickDefaultGpuDevices({ type: "komodo", serverId: "s" }, inventory, claims), { devices: ["GPU-bbb"] });
+  // No claims recorded — deterministic first pick (sharing is allowed).
+  assert.deepEqual(pickDefaultGpuDevices({ type: "komodo", serverId: "s" }, inventory, new Map()), { devices: ["GPU-aaa"] });
+});
+
+test("pickDefaultGpuDevices: Proxmox requires a free GPU; unknown inventory falls back to all", () => {
+  const busy = [{ id: "0000:01:00.0", busy: true }];
+  assert.match((pickDefaultGpuDevices({ type: "proxmox", node: "pve-01", vmType: "qemu" }, busy, new Map()) as any).error, /already passed through/);
+  const mixed = [{ id: "0000:01:00.0", busy: true }, { id: "0000:02:00.0" }];
+  assert.deepEqual(pickDefaultGpuDevices({ type: "proxmox", node: "pve-01", vmType: "qemu" }, mixed, new Map()), { devices: ["0000:02:00.0"] });
+  assert.deepEqual(pickDefaultGpuDevices({ type: "docker" }, [], new Map()), { devices: [] });
 });

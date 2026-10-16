@@ -47,7 +47,7 @@ import {
 } from "../platforms/portainer-deploy.js";
 import { probePortainer } from "../platforms/portainer.js";
 import { probeProxmox, validateProxmoxPlacement } from "../platforms/proxmox.js";
-import { resolveHostGpuDevices, validateGpuDeviceIds } from "../platforms/gpu-selection.js";
+import { countGpuClaims, pickDefaultGpuDevices, resolveHostGpuDevices, validateGpuDeviceIds } from "../platforms/gpu-selection.js";
 import { probeKomodo, probeKomodoCached } from "../platforms/komodo.js";
 import { isServerOnTailnet } from "../tailscale/node.js";
 import { findAgentDevice, probeTailscale, removeAgentDevices, isTailscaleEnabledFor } from "../tailscale/client.js";
@@ -679,6 +679,7 @@ export const appRouter = t.router({
             message: "Selecting specific GPUs requires a pinned placement — choose a host in the wizard, then pick its GPUs",
           });
         }
+        let gpuDevices = selectedGpuDevices;
         if (selectedGpuDevices.length > 0) {
           const hostDevices = resolveHostGpuDevices(platform, schedulerContext);
           if (!hostDevices.ok) {
@@ -687,6 +688,19 @@ export const appRouter = t.router({
           const deviceCheck = validateGpuDeviceIds(platform, selectedGpuDevices, hostDevices.devices);
           if (!deviceCheck.ok) {
             throw new TRPCError({ code: "PRECONDITION_FAILED", message: deviceCheck.message });
+          }
+        } else if (input.gpu?.required) {
+          // Selector left empty: assign one GPU — the least-claimed one — and
+          // record it, instead of exposing every GPU of the host. Falls back
+          // to "all" when the host's inventory is unknown.
+          const hostDevices = resolveHostGpuDevices(platform, schedulerContext);
+          if (hostDevices.ok) {
+            const claims = countGpuClaims(await listAgentStates(), platform);
+            const pick = pickDefaultGpuDevices(platform, hostDevices.devices, claims);
+            if ("error" in pick) {
+              throw new TRPCError({ code: "PRECONDITION_FAILED", message: pick.error });
+            }
+            gpuDevices = pick.devices;
           }
         }
 
@@ -730,7 +744,7 @@ export const appRouter = t.router({
           mission: normalizeMission(input.mission),
           platform: normalizePlatformTarget(platform),
           resources: normalizeResources(input.resources),
-          ...(input.gpu ? { gpu: normalizeGpu(input.gpu) } : {}),
+          ...(input.gpu ? { gpu: normalizeGpu({ ...input.gpu, devices: gpuDevices }) } : {}),
           env: agentEnv,
           persistent: input.persistent,
           createdAt: now,

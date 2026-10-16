@@ -728,7 +728,7 @@ export function HireAgent() {
                         val:
                           form.gpuDevices.length > 0
                             ? `required — ${form.gpuDevices.length} selected: ${form.gpuDevices.map(shortGpuId).join(", ")}`
-                            : "required — all GPUs on the host",
+                            : "required — 1 GPU, best available (auto-assigned)",
                       }]
                     : []),
                 ].map(({ label, val }) => (
@@ -793,7 +793,7 @@ export function HireAgent() {
                                   </div>
                                   <div className="text-[11px] text-gray-600 mt-1">
                                     {form.gpuDevices.length === 0
-                                      ? "No selection — all GPUs on the host are exposed"
+                                      ? "No selection — the least-loaded GPU on this host is assigned automatically; select specific GPUs (or all of them) to override"
                                       : `Only the selected ${form.gpuDevices.length === 1 ? "GPU is" : "GPUs are"} exposed to the agent`}
                                   </div>
                                 </div>
@@ -805,7 +805,7 @@ export function HireAgent() {
                               )
                             ) : (
                               <div className="text-[11px] text-gray-600">
-                                Auto-placement — the agent gets all GPUs of whichever host the scheduler picks.
+                                Auto-placement — the scheduler picks the best host and assigns its least-loaded GPU.
                                 Pin a placement below to select specific GPUs.
                               </div>
                             )}

@@ -126,9 +126,13 @@ exists, repeat the Docker checks through Portainer.
 ## Per-GPU selection (hire wizard)
 
 The hire wizard's GPU section lists the individual GPUs of the pinned host
-(pinned = placement override; with auto-placement the agent gets all GPUs of
-whichever host the scheduler picks). Leaving everything unchecked keeps the
-"all GPUs" behaviour; checking specific GPUs restricts the agent to those:
+(pinned = placement override; with auto-placement the scheduler picks the
+host, then the least-loaded GPU on it). Leaving everything unchecked assigns
+**one GPU — the least-claimed one on the chosen host** — and records it in the
+agent config; claims are counted from active agents on the same host. Checking
+specific GPUs restricts the agent to exactly those (check every GPU for the
+legacy "all" behaviour). If the host's GPU inventory is unknown (probe
+failed), the assignment falls back to "all".
 
 - **Docker / Portainer / Komodo**: ids are NVIDIA UUIDs from `nvidia-smi -L`
   (Komodo probes its servers; Docker probes a throwaway `debian:12-slim
@@ -138,7 +142,9 @@ whichever host the scheduler picks). Leaving everything unchecked keeps the
   platforms — two agents may select the same GPU.
 - **Proxmox**: ids are PCI ids from `hardware/pci` with free/busy state from
   `hostpci*` ownership. Selection is *exclusive* — busy GPUs are rejected at
-  hire time, and each selected GPU maps onto `hostpci0`–`hostpci3` (max 4).
+  hire time (including auto-assignment: a node whose every GPU is already
+  passed through fails the hire instead of the VM start), and each selected
+  GPU maps onto `hostpci0`–`hostpci3` (max 4).
 
 Selections are re-validated against fresh probe data at hire time; a stale UI
 selection fails with `PRECONDITION_FAILED` instead of deploying a broken agent.

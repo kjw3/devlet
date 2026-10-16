@@ -12,7 +12,7 @@
  * - Proxmox: ids are PCI ids. `busy` is authoritative (hostpci passthrough is
  *   exclusive), so a GPU passed to another VM fails validation.
  */
-import type { GpuDeviceInfo, PlatformTarget } from "@devlet/shared";
+import type { AgentConfig, AgentStatus, GpuDeviceInfo, PlatformTarget } from "@devlet/shared";
 import type { DockerStatus, KomodoStatus, PortainerStatus, ProxmoxStatus } from "@devlet/shared";
 
 export interface GpuDeviceValidation {
@@ -109,4 +109,60 @@ export function resolveHostGpuDevices(platform: PlatformTarget, statuses: Schedu
 function shortDeviceId(id: string): string {
   if (id.startsWith("GPU-")) return id.slice(4, 16);
   return id;
+}
+
+// ─── Default assignment (selector left empty) ─────────────────────────────────
+
+/** How many active agents have claimed each GPU on this host. */
+export function countGpuClaims(
+  states: Array<{ config: Pick<AgentConfig, "platform" | "gpu">; status: AgentStatus }>,
+  platform: PlatformTarget
+): Map<string, number> {
+  const claims = new Map<string, number>();
+  const hostKey = (p: PlatformTarget): string => {
+    switch (p.type) {
+      case "docker":
+        return "docker";
+      case "portainer":
+        return `portainer:${p.endpointId}`;
+      case "proxmox":
+        return `proxmox:${p.node}`;
+      case "komodo":
+        return `komodo:${p.serverId}`;
+    }
+  };
+  for (const s of states) {
+    if (s.status === "terminated" || s.status === "error") continue;
+    if (s.config.platform.type !== platform.type) continue;
+    if (hostKey(s.config.platform) !== hostKey(platform)) continue;
+    for (const d of s.config.gpu?.devices ?? []) {
+      claims.set(d, (claims.get(d) ?? 0) + 1);
+    }
+  }
+  return claims;
+}
+
+/**
+ * GPU assignment when the wizard's selector is left empty: one GPU — the
+ * least-claimed one — recorded in the config, instead of blanket "all GPUs".
+ * Container platforms share GPUs, so contention never fails; Proxmox
+ * passthrough is exclusive, so a node whose every GPU is already claimed
+ * fails here (at hire time) instead of at VM start. Empty inventory (probe
+ * failed, unknown host) falls back to the legacy "all" behaviour.
+ */
+export function pickDefaultGpuDevices(
+  platform: PlatformTarget,
+  available: GpuDeviceInfo[],
+  claims: Map<string, number>
+): { devices: string[] } | { error: string } {
+  if (available.length === 0) return { devices: [] };
+  const free = available.filter((d) => !d.busy);
+  if (platform.type === "proxmox" && free.length === 0) {
+    return {
+      error: `All GPUs on node ${platform.node} are already passed through to other VMs`,
+    };
+  }
+  const pool = free.length > 0 ? free : available;
+  const picked = [...pool].sort((a, b) => (claims.get(a.id) ?? 0) - (claims.get(b.id) ?? 0))[0]!;
+  return { devices: [picked.id] };
 }
