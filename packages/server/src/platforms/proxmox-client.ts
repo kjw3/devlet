@@ -589,6 +589,21 @@ export async function listHostpciInUse(node: string): Promise<Map<string, string
   } catch {
     return inUse;
   }
+  // mapping= entries name a cluster-wide resource mapping; resolve them to the
+  // PCI ids they pin on this node so mapped passthroughs count as busy.
+  const mappingIndex = new Map<string, Map<string, string>>(); // name → node → pciId
+  for (const m of await listPciMappings()) {
+    const perNode = new Map<string, string>();
+    for (const entry of m.map) {
+      // "<node>:<pci-id>[:<sub-id>]" — first colon only (ids contain colons)
+      const sep = entry.indexOf(":");
+      if (sep < 0) continue;
+      const entryNode = entry.slice(0, sep);
+      const entryId = entry.slice(sep + 1);
+      if (entryNode && entryId) perNode.set(entryNode, pciSlotKey(entryId));
+    }
+    mappingIndex.set(m.id, perNode);
+  }
   for (const vm of vms) {
     if (!Number.isFinite(vm.vmid)) continue;
     try {
@@ -600,6 +615,11 @@ export async function listHostpciInUse(node: string): Promise<Map<string, string
         const owner = vm.name ? `VM ${vm.name} (vmid ${vm.vmid})` : `VM ${vm.vmid}`;
         for (const part of value.split(";")) {
           const id = (part.split(",")[0] ?? "").trim().toLowerCase();
+          if (id.startsWith("mapping=")) {
+            const pinned = mappingIndex.get(id.slice("mapping=".length))?.get(node);
+            if (pinned) inUse.set(pinned, owner);
+            continue;
+          }
           // PVE accepts the full id (0000:2b:00.0) and the slot-only form
           // (0000:2b:00 — function defaults to 0); match on the slot.
           if (/^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}(\.[0-9a-f])?$/.test(id)) {
@@ -617,6 +637,56 @@ export async function listHostpciInUse(node: string): Promise<Map<string, string
 /** Normalize a PCI id to its slot (drop the ".function" suffix, lowercase). */
 export function pciSlotKey(id: string): string {
   return id.toLowerCase().replace(/\.[0-9a-f]+$/, "");
+}
+
+// ─── PCI resource mappings (PVE 8.1+) ────────────────────────────────────────
+// PVE treats API tokens as non-root for raw-PCI hostpci config ("only root can
+// set 'hostpci0' config for non-mapped devices") — even tokens of root@pam.
+// The supported non-root path is a resource mapping: hostpciN=mapping=<name>
+// with Resource.Use on /resource-pci/<name>. These helpers resolve mappings so
+// GPU config can prefer the least-privileged form.
+
+export interface PciMapping {
+  id: string;
+  /** Raw map entries: "<node>:<pci-id>[:<sub-id>]" */
+  map: string[];
+}
+
+export async function listPciMappings(): Promise<PciMapping[]> {
+  try {
+    const raw = await pveGet<Array<Record<string, unknown>>>("/cluster/mapping/pci");
+    return (raw ?? []).flatMap((m) =>
+      typeof m["id"] === "string" && Array.isArray(m["map"])
+        ? [{ id: m["id"] as string, map: m["map"].filter((e): e is string => typeof e === "string") }]
+        : []
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Does any map entry of this mapping cover the given device on the node?
+ *  Pure and exported for tests. Entries may carry a sub-device suffix and the
+ *  PCI id may be slot-only — both compared on the slot key. */
+export function mappingCovers(mapping: PciMapping, node: string, pciId: string): boolean {
+  const slot = pciSlotKey(pciId);
+  return mapping.map.some((entry) => {
+    // Entry format is "<node>:<pci-id>[:<sub-id>]" — split on the FIRST colon
+    // only; the PCI id itself contains colons (0000:02:00.0).
+    const sep = entry.indexOf(":");
+    if (sep < 0) return false;
+    const entryNode = entry.slice(0, sep);
+    const entryId = entry.slice(sep + 1);
+    return entryNode === node && pciSlotKey(entryId) === slot;
+  });
+}
+
+/** Name of a mapping covering the device on the node, if any. */
+export async function findPciMappingFor(node: string, pciId: string): Promise<string | null> {
+  for (const mapping of await listPciMappings()) {
+    if (mappingCovers(mapping, node, pciId)) return mapping.id;
+  }
+  return null;
 }
 
 export interface PickedGpu {

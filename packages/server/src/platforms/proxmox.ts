@@ -3,6 +3,7 @@ import { config } from "../config.js";
 import { loadEffectivePlatformExclusions } from "./exclusions.js";
 import {
   authHeaders,
+  findPciMappingFor,
   isProxmoxConfigured,
   listClusterGuests,
   listGpuDevices,
@@ -271,15 +272,19 @@ export async function validateProxmoxPlacement(
             "(all detected GPUs are already assigned to other VMs, or none is present)",
         };
       }
-      // PVE hard-restricts hostpci* config to root@pam — no ACL grant on the
-      // regular token can bypass it. The config step needs the dedicated root
-      // token, so fail the hire (not the post-clone provisioning) without one.
-      if (!rootAuthHeaders()) {
+      // PVE hard-restricts *unmapped* hostpci* config to root@pam — no ACL
+      // grant on the regular token can bypass it (and even root@pam API
+      // tokens don't count as root for this check). A PCI resource mapping
+      // covering the device lifts the restriction, so only fail the hire
+      // when neither path is available.
+      if (!(await findPciMappingFor(node, picked.id)) && !rootAuthHeaders()) {
         return {
           ok: false,
           message:
-            "GPU passthrough requires a root@pam API token (PVE restricts hostpci to root) — " +
-            "set PROXMOX_ROOT_USER, PROXMOX_ROOT_TOKEN_ID and PROXMOX_ROOT_TOKEN_SECRET",
+            "GPU passthrough requires either a PCI resource mapping covering the node's GPU " +
+            "or a root@pam API token (PVE restricts unmapped hostpci to root) — set " +
+            "PROXMOX_ROOT_USER, PROXMOX_ROOT_TOKEN_ID and PROXMOX_ROOT_TOKEN_SECRET, or " +
+            "create the mapping under Datacenter → Resource Mappings",
         };
       }
     }

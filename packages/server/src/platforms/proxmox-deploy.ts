@@ -15,6 +15,8 @@ import {
   listClusterGuests,
   listHostpciInUse,
   listPciDevices,
+  listPciMappings,
+  mappingCovers,
   pciSlotKey,
   pickGpuPciId,
   pveDelete,
@@ -621,6 +623,7 @@ async function createQemuGuest(
     const wantsGpu = Boolean(agentConfig.gpu?.required) || Boolean(config.proxmox.gpuPciId);
     const selectedGpuDevices = agentConfig.gpu?.devices ?? [];
     if (wantsGpu) {
+      let gpuIds: string[] = [];
       if (config.proxmox.gpuPciId) {
         const inUse = await listHostpciInUse(node);
         const owner = inUse.get(config.proxmox.gpuPciId.replace(/\.[0-9a-f]+$/, "").toLowerCase());
@@ -629,14 +632,14 @@ async function createQemuGuest(
             `GPU ${config.proxmox.gpuPciId} is already assigned to ${owner} on node ${node}`
           );
         }
-        configUpdate["hostpci0"] = `${config.proxmox.gpuPciId},pcie=1`;
+        gpuIds = [config.proxmox.gpuPciId];
       } else if (selectedGpuDevices.length > 0) {
         // GPUs explicitly chosen in the hire wizard — map them onto hostpci
         // slots after a fresh free/busy check against the node.
         const [devices, inUse] = await Promise.all([listPciDevices(node), listHostpciInUse(node)]);
-        const gpuIds = new Set(devices.filter(isGpuDevice).map((d) => pciSlotKey(d.id)));
+        const gpuIdsOnNode = new Set(devices.filter(isGpuDevice).map((d) => pciSlotKey(d.id)));
         for (const id of selectedGpuDevices) {
-          if (!gpuIds.has(pciSlotKey(id))) {
+          if (!gpuIdsOnNode.has(pciSlotKey(id))) {
             throw new Error(`GPU ${id} is not a GPU-class PCI device on node ${node}`);
           }
           const owner = inUse.get(pciSlotKey(id));
@@ -647,9 +650,7 @@ async function createQemuGuest(
         if (selectedGpuDevices.length > MAX_HOSTPCI_DEVICES) {
           throw new Error(`At most ${MAX_HOSTPCI_DEVICES} GPUs can be passed to one VM (requested: ${selectedGpuDevices.length})`);
         }
-        for (const [slot, id] of buildHostpciEntries(selectedGpuDevices)) {
-          configUpdate[slot] = `${id},pcie=1`;
-        }
+        gpuIds = selectedGpuDevices;
       } else {
         const picked = await pickGpuPciId(node);
         if (!picked) {
@@ -658,26 +659,54 @@ async function createQemuGuest(
               "(all detected GPUs are already assigned to other VMs, or none is present)"
           );
         }
-        configUpdate["hostpci0"] = `${picked.id},pcie=1`;
+        gpuIds = [picked.id];
+      }
+
+      // PVE refuses raw-PCI hostpci config to every API-token identity, even
+      // root@pam ones ("only root can set 'hostpci0' config for non-mapped
+      // devices"). A resource mapping covering the device lifts that: any
+      // identity with Resource.Use on the mapping may set hostpciN=mapping=...
+      // Prefer the mapping form so the least-privileged token works; fall back
+      // to raw + root token when no mapping covers the device.
+      const mappings = await listPciMappings();
+      const mappedNames = gpuIds.map((id) => {
+        const m = mappings.find((mapping) => mappingCovers(mapping, node, id));
+        return m?.id ?? null;
+      });
+      const allMapped = mappedNames.every((name): name is string => name !== null);
+      for (const [i, [slot]] of buildHostpciEntries(gpuIds).entries()) {
+        configUpdate[slot] = allMapped ? `mapping=${mappedNames[i]!},pcie=1` : `${gpuIds[i]!},pcie=1`;
       }
     }
 
     // PVE restricts hostpci* (and args) to root@pam — API tokens of ordinary
     // users get "only root can set 'hostpci0' config" even with full
-    // privileges. GPU hires therefore put the whole config update through an
-    // optional dedicated root token; everything else stays least-privileged.
+    // privileges. Raw PCI ids therefore need the optional dedicated root
+    // token; mapped devices go through the regular token first (least
+    // privilege) and fall back to root when its Resource.Use grant is missing.
     if (configUpdate["hostpci0"] !== undefined) {
-      const root = rootAuthHeaders();
-      if (!root) {
-        throw new Error(
-          "GPU passthrough requires a root@pam API token (PVE restricts hostpci to root) — " +
-            "set PROXMOX_ROOT_USER, PROXMOX_ROOT_TOKEN_ID and PROXMOX_ROOT_TOKEN_SECRET"
-        );
+      const viaMapping = String(configUpdate["hostpci0"]).startsWith("mapping=");
+      if (viaMapping) {
+        try {
+          await pvePut(`/nodes/${encodeURIComponent(node)}/qemu/${vmid}/config`, configUpdate);
+        } catch (err) {
+          const permDenied =
+            err instanceof ProxmoxApiError &&
+            (err.status === 403 || /only root can set|perm/i.test(err.message));
+          if (!permDenied || !rootAuthHeaders()) throw err;
+          await pvePutAsRoot(`/nodes/${encodeURIComponent(node)}/qemu/${vmid}/config`, configUpdate);
+        }
+      } else {
+        const root = rootAuthHeaders();
+        if (!root) {
+          throw new Error(
+            "GPU passthrough with a raw PCI id requires a root@pam API token (PVE restricts " +
+              "unmapped hostpci to root; create a PCI resource mapping to avoid this) — set " +
+              "PROXMOX_ROOT_USER, PROXMOX_ROOT_TOKEN_ID and PROXMOX_ROOT_TOKEN_SECRET"
+          );
+        }
+        await pvePutAsRoot(`/nodes/${encodeURIComponent(node)}/qemu/${vmid}/config`, configUpdate);
       }
-      await pvePutAsRoot(
-        `/nodes/${encodeURIComponent(node)}/qemu/${vmid}/config`,
-        configUpdate
-      );
     } else {
       await pvePut(`/nodes/${encodeURIComponent(node)}/qemu/${vmid}/config`, configUpdate);
     }

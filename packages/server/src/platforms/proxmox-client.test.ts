@@ -234,3 +234,40 @@ test("firstGlobalIpv4 skips loopback and strips CIDR", () => {
   assert.equal(firstGlobalIpv4([{ name: "eth0", inet: "fe80::1/64" }]), null);
   assert.equal(firstGlobalIpv4([]), null);
 });
+
+// ─── PCI resource mappings ────────────────────────────────────────────────────
+const { listHostpciInUse, mappingCovers, pciSlotKey: slotKey } = await import("./proxmox-client.js");
+
+test("mappingCovers matches node + slot, ignoring sub-device and case", () => {
+  const mapping = {
+    id: "devlet-gpu",
+    map: ["pc2:0000:02:00.0", "pc2:0000:02:00.1", "pc1:0000:2b:00"],
+  };
+  assert.equal(mappingCovers(mapping, "pc2", "0000:02:00.0"), true);
+  assert.equal(mappingCovers(mapping, "pc2", "0000:02:00"), true); // slot-only query
+  assert.equal(mappingCovers(mapping, "pc1", "0000:2B:00.0"), true); // case-insensitive slot
+  assert.equal(mappingCovers(mapping, "pc3", "0000:02:00.0"), false); // other node
+  assert.equal(mappingCovers(mapping, "pc2", "0000:03:00.0"), false); // other device
+});
+
+test("listHostpciInUse expands mapping= entries to the pinned device on the node", async () => {
+  installHandler((method, path) => {
+    if (path === "/cluster/mapping/pci") {
+      return { body: { data: [
+        { id: "devlet-gpu", map: ["pc2:0000:02:00.0"] },
+      ] } };
+    }
+    if (path === "/nodes/pc2/qemu") {
+      return { body: { data: [{ vmid: 120, name: "gpu2" }] } };
+    }
+    if (path === "/nodes/pc2/qemu/120/config") {
+      return { body: { data: { hostpci0: "mapping=devlet-gpu,pcie=1,rombar=0" } } };
+    }
+    return { body: { data: [] } };
+  });
+  const inUse = await listHostpciInUse("pc2");
+  assert.equal(inUse.get(slotKey("0000:02:00.0")), "VM gpu2 (vmid 120)");
+  // And the mapping is NOT counted as busy on an unrelated node's view.
+  const otherNode = await listHostpciInUse("pc1");
+  assert.equal(otherNode.size, 0);
+});
