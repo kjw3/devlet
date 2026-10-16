@@ -35,6 +35,28 @@ export const config = {
     tokenSecret: process.env["PROXMOX_TOKEN_SECRET"] ?? "",
     insecure: process.env["PROXMOX_INSECURE"] === "true",
     excludedNodes: parseCsvSet(process.env["PROXMOX_EXCLUDED_NODES"] ?? ""),
+    // Provisioning (docs/proxmox-provisioning.md):
+    node: process.env["PROXMOX_NODE"] ?? "",
+    storage: process.env["PROXMOX_STORAGE"] || "local-lvm",
+    // LXC OS template volid, e.g. "local:vztmpl/debian-12-standard_12.2-1_amd64.tar.zst"
+    lxcTemplate: process.env["PROXMOX_LXC_TEMPLATE"] ?? "",
+    // QEMU template VM ID to full-clone for VM agents (0 = not configured)
+    qemuTemplateId: Number(process.env["PROXMOX_QEMU_TEMPLATE_ID"] ?? 0) || 0,
+    // Storage for QEMU clones (overrides). Unset = PROXMOX_STORAGE when cloning
+    // on the template's node, else the template's own (shared) disk storage.
+    qemuStorage: process.env["PROXMOX_QEMU_STORAGE"] ?? "",
+    // Optional: PCI id (e.g. "0000:01:00.0") to set as hostpci0 when the QEMU
+    // template does not already carry GPU passthrough config.
+    gpuPciId: process.env["PROXMOX_GPU_PCI_ID"] ?? "",
+    // Optional root@pam API token — PVE allows only root to set hostpci* (GPU
+    // passthrough), even for tokens with full privileges. Used solely for the
+    // GPU config step; everything else runs with the regular token.
+    rootUser: process.env["PROXMOX_ROOT_USER"] ?? "",
+    rootTokenId: process.env["PROXMOX_ROOT_TOKEN_ID"] ?? "",
+    rootTokenSecret: process.env["PROXMOX_ROOT_TOKEN_SECRET"] ?? "",
+    // Bridge guests attach to (vmbr0 on default installs).
+    bridge: process.env["PROXMOX_BRIDGE"] || "vmbr0",
+    vlan: process.env["PROXMOX_VLAN"] || "",
   },
   tailscale: {
     clientId: process.env["TAILSCALE_OAUTH_CLIENT_ID"] ?? "",

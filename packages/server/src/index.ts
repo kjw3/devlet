@@ -8,6 +8,7 @@ import { appRouter } from "./routers/index.js";
 import { getAgentRunning, provisionAgent } from "./platforms/dispatch.js";
 import { probePortainer } from "./platforms/portainer.js";
 import { probeKomodo } from "./platforms/komodo.js";
+import { probeProxmox } from "./platforms/proxmox.js";
 import { listAgentStates, loadAgentState, saveAgentState } from "./agents/state.js";
 import {
   validateAgentProxyToken,
@@ -124,9 +125,21 @@ server.addHook("onRequest", async (request, reply) => {
 server.get("/health", async () => ({ status: "ok" }));
 
 server.all("/trpc/*", async (request: FastifyRequest, reply: FastifyReply) => {
+  // Fastify's JSON parser has already consumed the raw stream for
+  // application/json bodies, so request.body holds the parsed value. A
+  // top-level JSON string (e.g. `"agent-84wq"` for agents.fire) arrives here
+  // as a bare JS string — re-serializing with JSON.stringify restores the
+  // quotes tRPC needs. Without this, tRPC double-parses the bare string and
+  // fails with "Unexpected token". Non-JSON bodies (raw strings/buffers) pass
+  // through untouched; streams (no parser registered) pass through as-is.
+  const isJsonContentType = String(request.headers["content-type"] ?? "").includes(
+    "application/json"
+  );
   const body =
     request.method === "GET" || request.method === "HEAD"
       ? undefined
+      : isJsonContentType
+      ? JSON.stringify(request.body)
       : typeof request.body === "string" || Buffer.isBuffer(request.body)
       ? request.body
       : request.body == null
@@ -283,6 +296,18 @@ async function syncAgentStatuses(): Promise<void> {
                 state.status = "error";
                 state.error = `Portainer endpoint ${platform.endpointId} is offline or unreachable`;
                 state.logs.push("[devlet] Portainer endpoint offline — marked error");
+                await saveAgentState(state);
+              }
+            }
+
+            if (running === null && state.config.platform.type === "proxmox") {
+              // Proxmox API unreachable — cannot tell guest state; flag it rather
+              // than silently assuming the agent is fine (R4).
+              const status = await probeProxmox().catch(() => null);
+              if (!status?.connected) {
+                state.status = "error";
+                state.error = "Proxmox API is offline or unreachable";
+                state.logs.push("[devlet] Proxmox API unreachable — marked error");
                 await saveAgentState(state);
               }
             }

@@ -80,6 +80,21 @@ export interface ProxmoxStatus {
   version?: string;
   nodes: ProxmoxNode[];
   error?: string;
+  // ── Provisioning readiness (see docs/proxmox-provisioning.md) ──
+  /** Default node from PROXMOX_NODE (empty when unset). */
+  defaultNode?: string;
+  /** Storage pool for guest disks from PROXMOX_STORAGE. */
+  storage?: string;
+  /** Configured LXC template volid (empty when unset). */
+  lxcTemplate?: string;
+  /** Whether the LXC template exists on the default node's storage. */
+  lxcTemplateReady?: boolean;
+  /** Configured QEMU template VM id (0 = not configured). */
+  qemuTemplateId?: number;
+  /** Whether the QEMU template VM exists (as a template) in the cluster. */
+  qemuTemplateReady?: boolean;
+  /** Human-readable blocker when provisioning cannot proceed; absent when ready. */
+  provisioningBlocker?: string;
 }
 
 /** Normalized Komodo server lifecycle state. */

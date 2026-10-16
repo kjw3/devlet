@@ -52,7 +52,43 @@ the Docker host and the server proxies to them via `DEVLET_DOCKER_PROXY_HOST`
 
 ## Proxmox
 
-Discovery and placement only; provisioning agents on Proxmox is not implemented yet.
+Full deployment platform (see [docs/proxmox-provisioning.md](proxmox-provisioning.md) for the
+implementation plan, permissions and template preparation):
+
+- **One guest per agent.** LXC for CPU agents, QEMU clones for VM/GPU agents
+  (nanoclaw and GPU-required hires route here). The guest runs Docker and the standard
+  agent image, so agent behaviour is identical to the container platforms. Guests use
+  DHCP on `PROXMOX_BRIDGE` (default vmbr0) — the bridge needs a DHCP server.
+- **Requirements:** `PROXMOX_LXC_TEMPLATE` (an LXC OS template in `PROXMOX_STORAGE`,
+  Debian-based) and, for VM agents, `PROXMOX_QEMU_TEMPLATE_ID` (a template VM with
+  Docker + qemu-guest-agent installed; cloud-init templates get the provisioning key
+  injected automatically). Missing templates fail the hire synchronously with a clear
+  error.
+- **Disks.** LXC rootfs goes to `PROXMOX_STORAGE` (default `local-lvm` — node-local and
+  fast; use a shared storage like Ceph if you want guest mobility). VM disks go to
+  `PROXMOX_QEMU_STORAGE` (default: the template's own storage when shared). Clones are
+  **linked** (instant, copy-on-write) when the destination equals the template's disk
+  storage — put the QEMU template on shared storage (e.g. `ceph-vms`) to get linked
+  clones on every node; otherwise Devlet full-clones (a one-time disk copy per agent).
+- **Fixed ports.** Each agent has its own guest, so ports never collide: terminal 7681,
+  SSH 2222, plus OpenClaw 18789 / Moltis 13131 where applicable.
+- **GPU passthrough.** GPU-required hires get the node's first **free** GPU as
+  `hostpci0` — GPUs already passed through to another VM are rejected up front (hire
+  fails synchronously with `Node "x" has no free GPU`; override with
+  `PROXMOX_GPU_PCI_ID`, BMC/dummy graphics excluded). PVE only lets root@pam set
+  `hostpci*` — even a fully-privileged token gets `only root can set 'hostpci0' config`
+  — so GPU hires need an optional root token
+  (`PROXMOX_ROOT_USER`/`PROXMOX_ROOT_TOKEN_ID`/`PROXMOX_ROOT_TOKEN_SECRET`, created via
+  `pveum user token add root@pam devlet-gpu --privsep 0`). It is used solely for that
+  config step; all other calls stay least-privileged. The hosts also need IOMMU enabled
+  (`intel_iommu=on`/`amd_iommu=on` + `iommu=pt`, vfio modules).
+- **Access.** The terminal proxy and SSH commands target the guest's IP (LXC interfaces
+  API / qemu-guest-agent), with the same automatic tailnet fallback as Komodo agents.
+- **Lifecycle.** Fire destroys the guest; persistent agents are restarted by the
+  reconciler when stopped out-of-band; logs come from `docker logs` inside the guest.
+
+Run `node --import tsx scripts/proxmox-probe.ts` from `packages/server` (after filling the
+`PROXMOX_*` variables in `.env`) to verify credentials, templates and GPU detection.
 
 ## LiteLLM gateway
 

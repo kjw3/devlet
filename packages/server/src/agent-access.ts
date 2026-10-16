@@ -3,6 +3,7 @@ import type { AgentConfig, AgentState, PlatformTarget } from "@devlet/shared";
 import { config } from "./config.js";
 import { probePortainer } from "./platforms/portainer.js";
 import { probeKomodo } from "./platforms/komodo.js";
+import { allocateVmid, getLxcGuestIp, getQemuGuestIp } from "./platforms/proxmox-client.js";
 import { loadAgentState } from "./agents/state.js";
 
 export type AgentAccessSurface = "terminal" | "openclaw" | "moltis";
@@ -59,10 +60,49 @@ export async function resolveAgentAccessHost(platform: PlatformTarget): Promise<
   if (platform.type === "komodo") {
     return getKomodoServerHost(platform.serverId);
   }
+  if (platform.type === "proxmox") {
+    // No agent id in scope here; callers that have one use resolveProxmoxAgentHost.
+    return "";
+  }
   return "localhost";
 }
 
-async function resolveAgentProxyTargetHost(platform: PlatformTarget): Promise<string> {
+/**
+ * Resolve the address to reach a Proxmox agent's published ports: the guest's
+ * IP (D5). Empty string when the guest is not (yet) visible — surfaces then
+ * rely on the tailnet fallback in the proxy. Cached 30 s: this runs per proxy
+ * request, and PVE reads should not.
+ */
+const PROXMOX_HOST_TTL_MS = 30_000;
+const proxmoxHostCache = new Map<string, { at: number; host: string }>();
+
+export async function resolveProxmoxAgentHost(platform: PlatformTarget, agentId: string): Promise<string> {
+  if (platform.type !== "proxmox") return "";
+
+  const cached = proxmoxHostCache.get(agentId);
+  if (cached && Date.now() - cached.at < PROXMOX_HOST_TTL_MS) return cached.host;
+
+  let host = "";
+  try {
+    const allocation = await allocateVmid(agentId);
+    const guest = allocation.existingGuest;
+    if (guest) {
+      const node = platform.node || guest.node;
+      const ip =
+        guest.vmType === "qemu"
+          ? await getQemuGuestIp(node, guest.vmid)
+          : await getLxcGuestIp(node, guest.vmid);
+      host = ip ?? "";
+    }
+  } catch {
+    host = "";
+  }
+
+  proxmoxHostCache.set(agentId, { at: Date.now(), host });
+  return host;
+}
+
+async function resolveAgentProxyTargetHost(platform: PlatformTarget, agentId?: string): Promise<string> {
   if (platform.type === "portainer") {
     return getPortainerEndpointHost(platform.endpointId);
   }
@@ -71,6 +111,9 @@ async function resolveAgentProxyTargetHost(platform: PlatformTarget): Promise<st
   }
   if (platform.type === "docker") {
     return config.dockerProxyHost;
+  }
+  if (platform.type === "proxmox") {
+    return agentId ? resolveProxmoxAgentHost(platform, agentId) : "";
   }
   return "localhost";
 }
@@ -107,14 +150,16 @@ export async function resolveSurfaceTargetUrl(
   state: AgentState,
   surface: AgentAccessSurface
 ): Promise<string | null> {
-  return resolveSurfaceTargetUrlForConfig(state.config, surface);
+  return resolveSurfaceTargetUrlForConfig(state.config, surface, state.config.id);
 }
 
 export async function resolveSurfaceTargetUrlForConfig(
   agentConfig: AgentConfig,
-  surface: AgentAccessSurface
+  surface: AgentAccessSurface,
+  agentId?: string
 ): Promise<string | null> {
-  const host = await resolveAgentProxyTargetHost(agentConfig.platform);
+  const host = await resolveAgentProxyTargetHost(agentConfig.platform, agentId ?? agentConfig.id);
+  if (!host) return null;
 
   switch (surface) {
     case "terminal": {

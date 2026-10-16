@@ -144,10 +144,6 @@ const AGENT_TYPE_SUBTITLES: Record<string, string> = {
 };
 
 
-// ─── Proxmox disconnected sentinel (used to exclude Proxmox for single-task) ──
-
-const DISCONNECTED_PROXMOX: ProxmoxStatus = { connected: false, nodes: [] };
-
 // ─── Wizard steps ─────────────────────────────────────────────────────────────
 
 type WizardMode = "single-task" | "long-running";
@@ -298,15 +294,7 @@ export function HireAgent() {
     ...(komodoStatus ? { komodo: komodoStatus } : {}),
   };
 
-  // For single-task, exclude Proxmox from placement options entirely
-  const reviewContext = form.mode === "single-task"
-    ? {
-        ...(dockerStatus ? { docker: dockerStatus } : {}),
-        ...(portainerStatus ? { portainer: portainerStatus } : {}),
-        proxmox: DISCONNECTED_PROXMOX,
-        ...(komodoStatus ? { komodo: komodoStatus } : {}),
-      }
-    : liveContext;
+  const reviewContext = liveContext;
 
   const placementReqs =
     form.type !== ""
@@ -328,7 +316,7 @@ export function HireAgent() {
       ? scheduleAgent(placementReqs, {
           docker: dockerStatus ?? null,
           portainer: portainerStatus ?? null,
-          proxmox: form.mode === "single-task" ? DISCONNECTED_PROXMOX : (proxmoxStatus ?? null),
+          proxmox: proxmoxStatus ?? null,
           komodo: komodoStatus ?? null,
         })
       : null;

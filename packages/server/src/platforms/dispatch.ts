@@ -21,6 +21,14 @@ import {
   removeKomodoContainer,
   stopKomodoContainer,
 } from "./komodo-deploy.js";
+import {
+  createProxmoxGuest,
+  getProxmoxGuestLogs,
+  getProxmoxGuestRunning,
+  removeProxmoxGuest,
+  stopProxmoxGuest,
+} from "./proxmox-deploy.js";
+import { allocateVmid } from "./proxmox-client.js";
 
 // ─── platformRef format ───────────────────────────────────────────────────────
 //   pending                           — not yet provisioned
@@ -87,10 +95,13 @@ export async function provisionAgent(baseConfig: AgentConfig): Promise<string> {
     }
 
     case "proxmox": {
-      // TODO: implemented by Codex — see tasks/codex/004-proxmox-deploy.md
-      throw new Error(
-        `Proxmox provisioning not yet implemented (node: ${config.platform.node}, type: ${config.platform.vmType})`
-      );
+      // Deploy via the PVE API — LXC for CPU agents, QEMU clone for GPU/VM
+      // agents (docs/proxmox-provisioning.md).
+      const platform = config.platform;
+      if (platform.type !== "proxmox") {
+        throw new Error("Proxmox provisioning invoked without a proxmox platform target");
+      }
+      return createProxmoxGuest(config);
     }
 
     case "komodo": {
@@ -106,7 +117,7 @@ export async function stopAgent(platformRef: string): Promise<void> {
   if (parsed.type === "portainer") return stopPortainerContainer(parsed.endpointId, parsed.containerId);
   if (parsed.type === "komodo") return stopKomodoContainer(parsed.serverId, parsed.deploymentName);
   if (parsed.type === "proxmox") {
-    throw new Error(`Proxmox stop not yet implemented`);
+    return stopProxmoxGuest(parsed.node, parsed.vmType, Number(parsed.vmId));
   }
 }
 
@@ -117,7 +128,25 @@ export async function removeAgent(platformRef: string): Promise<void> {
   if (parsed.type === "portainer") return removePortainerContainer(parsed.endpointId, parsed.containerId);
   if (parsed.type === "komodo") return removeKomodoContainer(parsed.serverId, parsed.deploymentName);
   if (parsed.type === "proxmox") {
-    throw new Error(`Proxmox remove not yet implemented`);
+    return removeProxmoxGuest(parsed.node, parsed.vmType, Number(parsed.vmId));
+  }
+}
+
+/**
+ * Best-effort teardown for hires that failed before a platformRef was
+ * persisted. Proxmox guests are named deterministically (devlet-{agentId},
+ * D3), so an orphaned guest from a partial provision can still be found and
+ * destroyed. Other platforms are skipped — nothing recoverable by name.
+ */
+export async function removeOrphanedProvision(config: AgentConfig): Promise<void> {
+  if (config.platform.type !== "proxmox") return;
+  try {
+    const allocation = await allocateVmid(config.id);
+    if (!allocation.existingGuest) return;
+    const { node, vmType, vmid } = allocation.existingGuest;
+    await removeProxmoxGuest(node, vmType, Number(vmid));
+  } catch {
+    // best effort — the reconciler/state shows the failure otherwise
   }
 }
 
@@ -132,7 +161,10 @@ export async function getAgentRunning(platformRef: string): Promise<boolean | nu
   if (parsed.type === "docker") return getContainerRunning(parsed.containerId);
   if (parsed.type === "portainer") return getPortainerContainerRunning(parsed.endpointId, parsed.containerId);
   if (parsed.type === "komodo") return getKomodoContainerRunning(parsed.serverId, parsed.deploymentName);
-  return null; // proxmox — not yet implemented
+  if (parsed.type === "proxmox") {
+    return getProxmoxGuestRunning(parsed.node, parsed.vmType, Number(parsed.vmId));
+  }
+  return null;
 }
 
 export async function getAgentLogs(
@@ -162,6 +194,13 @@ export async function getAgentLogs(
       return fallback;
     }
   }
-  if (parsed.type === "proxmox") return fallback;
+  if (parsed.type === "proxmox") {
+    try {
+      const logs = await getProxmoxGuestLogs(parsed.node, parsed.vmType, Number(parsed.vmId));
+      return logs.length > 0 ? logs : fallback;
+    } catch {
+      return fallback;
+    }
+  }
   return fallback;
 }

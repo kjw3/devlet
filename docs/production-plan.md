@@ -11,7 +11,9 @@ Reviewed at commit `067dabb` (about 10k lines of TypeScript and shell across `se
 
 ### What works well
 - Clear architecture: tRPC server, React UI, CLI, shared zod schemas and per-agent-type images.
-- Broad placement: Docker, Portainer and Komodo provision; Proxmox only discovers. GPU-aware scheduler.
+- Broad placement: Docker, Portainer, Komodo and Proxmox provision (Proxmox live-verified:
+  LXC + QEMU linked clones, SSH bootstrap, terminal/SSH/log access, teardown). GPU-aware
+  scheduler.
 - Several access paths to an agent (proxy, direct SSH, tailnet), subdomain-per-agent URLs and
   HMAC-signed proxy tokens.
 - Sensible early hygiene: constant-time token compare, secret redaction in API responses,
@@ -31,7 +33,7 @@ Reviewed at commit `067dabb` (about 10k lines of TypeScript and shell across `se
 | 7 | Observability | Fastify logger is off (`Fastify()`): no structured logs, request IDs or metrics. No audit trail of who hired, fired or opened a terminal. `/health` only reports liveness. Only the last 100 container log lines are available. | `index.ts:21`, `docker.ts` |
 | 8 | Quality gates | **Zero tests** and no CI for typecheck, lint or tests; CI only publishes images. Images default to `latest`. No dependency or image scanning, no SBOM. Web mocks ship in the source tree. | `.github/workflows`, no `*.test.*` |
 | 9 | Web / API hardening | Token stored in `localStorage` (XSS-exposed). No rate limiting or brute-force protection on `/trpc`. The proxy token travels in the URL path (leaks into logs and Referer). No CSP or security headers in `nginx.conf`. `hire` accepts arbitrary per-agent env and a free-form mission. | `App.tsx`, `nginx.conf` |
-| 10 | Ops UX | About 60 env vars with no validation at boot. No migrations or versioned state schema. No upgrade path, runbook or sizing guidance. Proxmox provisioning is a stub and `nemoclaw` is a placeholder image. | `docker-compose.yml`, `docs/platforms.md` |
+| 10 | Ops UX | About 60 env vars with no validation at boot. No migrations or versioned state schema. No upgrade path, runbook or sizing guidance. `nemoclaw` is a placeholder image and GPU passthrough needs a free GPU + root token to verify. | `docker-compose.yml`, `docs/platforms.md` |
 | 11 | Cost control | No quotas, budgets or per-user usage attribution. Hire can request unbounded CPU, memory and GPU. Nothing reaps idle agents (Mission `timeout` and `onComplete` exist but are advisory). | `types/agent.ts` |
 
 ## 2. Target definition ("production for a team")
@@ -133,7 +135,8 @@ documented restore works end to end.
   providers); restrict free-form env and image overrides to admins. (M)
 - **Per-user credentials**: users supply their own Git and provider credentials, stored encrypted and
   injected only into their agents. (M)
-- Finish or remove unfinished surface: Proxmox provisioning (L), the `nemoclaw` placeholder and the web
+- Finish or remove unfinished surface: Proxmox GPU passthrough end-to-end (deferred until a
+  cluster GPU is free), the `nemoclaw` placeholder and the web
   mock data in `packages/web/src/mocks` (S).
 
 ### Phase 6: Hardening, release and documentation (about 1 to 2 weeks)
@@ -185,4 +188,5 @@ owner and principal fields are not migrated twice.
 2. State store: SQLite (simpler, single replica) or Postgres (HA path)?
 3. Provider-key strategy: require LiteLLM virtual keys, or allow raw provider keys with documented risk?
 4. Isolation bar for 1.0: hardened containers plus network policy, or sandboxed runtimes (gVisor/Kata)?
-5. Which platforms are in the 1.0 support matrix? (Proxmox provisioning is the largest unfinished item.)
+5. Which platforms are in the 1.0 support matrix? (Proxmox provisioning is implemented and
+   live-verified for LXC/QEMU; GPU passthrough awaits a free GPU.)

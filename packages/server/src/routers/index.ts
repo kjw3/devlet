@@ -40,11 +40,11 @@ import {
   removePortainerContainerByName,
 } from "../platforms/portainer-deploy.js";
 import { probePortainer } from "../platforms/portainer.js";
-import { probeProxmox } from "../platforms/proxmox.js";
+import { probeProxmox, validateProxmoxPlacement } from "../platforms/proxmox.js";
 import { probeKomodo } from "../platforms/komodo.js";
 import { isServerOnTailnet } from "../tailscale/node.js";
 import { findAgentDevice, probeTailscale, removeAgentDevices, isTailscaleEnabledFor } from "../tailscale/client.js";
-import { provisionAgent, stopAgent, removeAgent, getAgentLogs } from "../platforms/dispatch.js";
+import { provisionAgent, stopAgent, removeAgent, getAgentLogs, removeOrphanedProvision } from "../platforms/dispatch.js";
 import {
   listAgentStates,
   loadAgentState,
@@ -56,6 +56,7 @@ import {
   buildPreferredAgentAccessUrl,
   buildResolvedAgentSubdomainUrl,
   resolveAgentAccessHost,
+  resolveProxmoxAgentHost,
   resolveSurfaceTargetUrl,
 } from "../agent-access.js";
 import {
@@ -162,7 +163,7 @@ async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
   const terminalTarget = await resolveSurfaceTargetUrl(state, "terminal");
   const openclawTarget = await resolveSurfaceTargetUrl(state, "openclaw");
   const moltisTarget = await resolveSurfaceTargetUrl(state, "moltis");
-  const sshHost = sshPort ? await resolveAgentAccessHost(state.config.platform) : null;
+  const sshHost = sshPort ? await resolveAccessHostForAgent(state.config.platform, state.config.id) : null;
 
   if (terminalPort && terminalTarget) {
     const terminalUrl = await buildPreferredAgentAccessUrl(state.config, "terminal");
@@ -337,7 +338,28 @@ function normalizeMission(mission: {
   };
 }
 
+/** Host for direct access (SSH command display, OpenClaw origins): guest IP for
+ *  Proxmox agents, platform host for the others. Empty when not resolvable yet. */
+async function resolveAccessHostForAgent(platform: PlatformTarget, agentId: string): Promise<string> {
+  if (platform.type === "proxmox") return resolveProxmoxAgentHost(platform, agentId);
+  return resolveAgentAccessHost(platform);
+}
+
 async function ensureAgentAccessPorts(config: AgentConfig, sshEnabled: boolean): Promise<void> {
+  if (config.platform.type === "proxmox") {
+    // One dedicated guest per agent — fixed container ports, no host-range
+    // allocation race (docs/proxmox-provisioning.md, D4).
+    if (!config.env["DEVLET_TERMINAL_PORT"]) config.env["DEVLET_TERMINAL_PORT"] = "7681";
+    if (sshEnabled && !config.env["DEVLET_SSH_PORT"]) config.env["DEVLET_SSH_PORT"] = "2222";
+    if (config.type === "openclaw" && !config.env["OPENCLAW_HOST_PORT"]) {
+      config.env["OPENCLAW_HOST_PORT"] = "18789";
+    }
+    if (config.type === "moltis" && !config.env["MOLTIS_HOST_PORT"]) {
+      config.env["MOLTIS_HOST_PORT"] = "13131";
+    }
+    return;
+  }
+
   if (config.platform.type === "portainer") {
     if (!config.env["DEVLET_TERMINAL_PORT"]) {
       config.env["DEVLET_TERMINAL_PORT"] = String(
@@ -426,7 +448,7 @@ async function ensureAgentAccessEnv(config: AgentConfig): Promise<void> {
     // Allow the main Devlet origin, the direct host:port URL, and the
     // wildcard-subdomain proxy origin when that feature is configured.
     const openclawHostPort = config.env["OPENCLAW_HOST_PORT"];
-    const agentHost = await resolveAgentAccessHost(config.platform);
+    const agentHost = await resolveAccessHostForAgent(config.platform, config.id);
     const directOrigin = openclawHostPort ? `http://${agentHost}:${openclawHostPort}` : null;
     const allowedOrigins = [new URL(appConfig.publicBaseUrl).origin];
     const proxiedOriginUrl = await buildResolvedAgentSubdomainUrl(config, "openclaw");
@@ -610,6 +632,20 @@ export const appRouter = t.router({
             return decision.placement;
           })();
 
+        // Fail fast on Proxmox placements that cannot provision (missing
+        // templates, offline node) instead of erroring asynchronously later.
+        if (platform.type === "proxmox") {
+          const placementCheck = await validateProxmoxPlacement(platform, proxmoxStatus, {
+            gpuRequired: Boolean(input.gpu?.required),
+          });
+          if (!placementCheck.ok) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: placementCheck.message,
+            });
+          }
+        }
+
         const id = `agent-${Math.random().toString(36).slice(2, 6)}`;
         const now = new Date().toISOString();
 
@@ -694,6 +730,11 @@ export const appRouter = t.router({
       const state = await loadAgentState(input);
       await stopAgent(state.platformRef);
       await removeAgent(state.platformRef);
+      // A hire that failed mid-provision has no platformRef — clean up any
+      // partially created platform resources by name (Proxmox guests).
+      if (state.platformRef === "pending") {
+        await removeOrphanedProvision(state.config);
+      }
       await removeAgentDevices(state.config.id);
       state.status = "terminated";
       await saveAgentState(state);
