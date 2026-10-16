@@ -5,10 +5,21 @@ import yaml from "js-yaml";
 import { TRPCError } from "@trpc/server";
 import { AgentStateSchema, type AgentState, type AgentConfig, type Mission, type MissionProgress, type MissionStep, type PlatformTarget, type ResourceLimits, type GpuRequirements } from "@devlet/shared";
 
-export const STATE_DIR = path.join(os.homedir(), ".devlet", "agents");
+const DEFAULT_STATE_DIR = path.join(os.homedir(), ".devlet", "agents");
+
+/**
+ * Agent state directory. `DEVLET_STATE_DIR` overrides it (used by tests for
+ * hermetic runs); resolved at call time so test env changes take effect.
+ */
+export function getStateDir(): string {
+  return process.env["DEVLET_STATE_DIR"] ?? DEFAULT_STATE_DIR;
+}
+
+/** @deprecated legacy constant export — prefer getStateDir(). */
+export const STATE_DIR = DEFAULT_STATE_DIR;
 
 function getStatePath(id: string): string {
-  return path.join(STATE_DIR, `${id}.yaml`);
+  return path.join(getStateDir(), `${id}.yaml`);
 }
 
 function normalizePlatformTarget(platform: {
@@ -112,6 +123,7 @@ function normalizeMissionProgress(progress: {
   completed: number[];
   startedAt: string;
   completedAt?: string;
+  activity?: MissionProgress["activity"];
 }): MissionProgress {
   return {
     currentStep: progress.currentStep,
@@ -119,6 +131,9 @@ function normalizeMissionProgress(progress: {
     startedAt: progress.startedAt,
     ...(progress.completedAt !== undefined
       ? { completedAt: progress.completedAt }
+      : {}),
+    ...(progress.activity !== undefined
+      ? { activity: progress.activity }
       : {}),
   };
 }
@@ -188,6 +203,7 @@ function normalizeAgentState(state: {
     completed: number[];
     startedAt: string;
     completedAt?: string;
+    activity?: MissionProgress["activity"];
   };
   logs: string[];
   error?: string;
@@ -203,12 +219,23 @@ function normalizeAgentState(state: {
 }
 
 export async function ensureStateDir(): Promise<void> {
-  await fs.mkdir(STATE_DIR, { recursive: true });
+  await fs.mkdir(getStateDir(), { recursive: true });
 }
 
 export async function saveAgentState(state: AgentState): Promise<void> {
   await ensureStateDir();
-  await fs.writeFile(getStatePath(state.config.id), yaml.dump(state), "utf8");
+  // Atomic write: dump to a unique temp file in the same directory, then
+  // rename over the target. A crash mid-write can never leave a truncated or
+  // partially-written YAML file behind (rename is atomic on POSIX).
+  const target = getStatePath(state.config.id);
+  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await fs.writeFile(tmp, yaml.dump(state), "utf8");
+    await fs.rename(tmp, target);
+  } catch (error) {
+    await fs.rm(tmp, { force: true }).catch(() => {});
+    throw error;
+  }
 }
 
 export async function loadAgentState(id: string): Promise<AgentState> {
@@ -232,13 +259,13 @@ export async function loadAgentState(id: string): Promise<AgentState> {
 export async function listAgentStates(): Promise<AgentState[]> {
   await ensureStateDir();
 
-  const entries = await fs.readdir(STATE_DIR, { withFileTypes: true });
+  const entries = await fs.readdir(getStateDir(), { withFileTypes: true });
   const states = await Promise.all(
     entries
       .filter((entry) => entry.isFile() && entry.name.endsWith(".yaml"))
       .map(async (entry) => {
         try {
-          const content = await fs.readFile(path.join(STATE_DIR, entry.name), "utf8");
+          const content = await fs.readFile(path.join(getStateDir(), entry.name), "utf8");
           return normalizeAgentState(AgentStateSchema.parse(yaml.load(content)));
         } catch {
           return null;

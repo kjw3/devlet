@@ -92,6 +92,39 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
   ]);
 }
 
+// ─── Probe result cache ─────────────────────────────────────────────────────────
+// A full Komodo probe lists servers and runs per-server terminal work, so it is
+// far too expensive for per-request paths (agent access resolution used to pay
+// it once per surface, per agent). `probeKomodoCached` returns a short-TTL
+// snapshot with in-flight dedup. Capacity/admission paths that must not act on
+// stale data call `probeKomodo` directly instead.
+const PROBE_TTL_MS = 10_000;
+const PROBE_ERROR_TTL_MS = 5_000; // cache failures briefly so an outage cannot hammer the core
+let probeCache: { at: number; connected: boolean; promise: Promise<KomodoStatus> } | null = null;
+
+export function probeKomodoCached(): Promise<KomodoStatus> {
+  if (probeCache) {
+    const ttl = probeCache.connected ? PROBE_TTL_MS : PROBE_ERROR_TTL_MS;
+    if (Date.now() - probeCache.at < ttl) return probeCache.promise;
+  }
+  const promise = probeKomodo()
+    .then((status) => {
+      probeCache = { at: Date.now(), connected: status.connected, promise: Promise.resolve(status) };
+      return status;
+    })
+    .catch((error: unknown) => {
+      const status: KomodoStatus = {
+        connected: false,
+        servers: [],
+        error: error instanceof Error ? error.message : String(error),
+      };
+      probeCache = { at: Date.now(), connected: false, promise: Promise.resolve(status) };
+      return status;
+    });
+  probeCache = { at: Date.now(), connected: false, promise };
+  return promise;
+}
+
 // Host-level nvidia-smi when the Komodo agent runs on the host. When it runs in a container
 // (no nvidia-smi, no /dev/nvidia*), use Docker's NVIDIA runtime instead, which injects
 // nvidia-smi into any glibc container started with --gpus all. The runtime check keeps
@@ -148,6 +181,7 @@ export async function probeKomodo(): Promise<KomodoStatus> {
     return {
       connected: false,
       configured: false,
+      observedAt: new Date().toISOString(),
       servers: [],
       error: "Komodo is not configured (set KOMODO_URL / KOMODO_API_KEY / KOMODO_API_SECRET)",
     };
@@ -205,10 +239,11 @@ export async function probeKomodo(): Promise<KomodoStatus> {
       })
     );
 
-    return { connected: true, ...(version ? { version } : {}), servers: serverInfos };
+    return { connected: true, observedAt: new Date().toISOString(), ...(version ? { version } : {}), servers: serverInfos };
   } catch (error) {
     return {
       connected: false,
+      observedAt: new Date().toISOString(),
       servers: [],
       error: error instanceof Error ? error.message : String(error),
     };

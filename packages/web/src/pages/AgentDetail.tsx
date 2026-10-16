@@ -1,10 +1,11 @@
 import { useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { AGENT_TYPE_LABELS } from "@devlet/shared";
-import { trpc } from "../trpc.js";
+import { trpc, trpcInventory } from "../trpc.js";
 import { StatusBadge } from "../components/StatusDot.js";
 import { LogViewer } from "../components/LogViewer.js";
 import { ConfirmModal } from "../components/ConfirmModal.js";
+import { missionActivityView } from "../lib/lifecycle.js";
 import type { AgentState } from "@devlet/shared";
 
 const PLATFORM_LABELS = { docker: "Docker", portainer: "Portainer", proxmox: "Proxmox", komodo: "Komodo" };
@@ -369,7 +370,9 @@ export function AgentDetail() {
     refetchInterval: 5_000,
   });
 
-  const { data: liveLogs } = trpc.agents.logs.useQuery(id!, {
+  // Logs are a slow per-agent platform fetch — separate lane so log polling
+  // cannot delay list/detail/health responses in a shared batch.
+  const { data: liveLogs, error: logsError, isFetching: logsFetching } = trpcInventory.agents.logs.useQuery(id!, {
     enabled: !!id && !!agent,
     refetchInterval: agent?.status === "running" ? 3_000 : false,
   });
@@ -411,6 +414,7 @@ export function AgentDetail() {
   }
 
   const { config, status, missionProgress, error: agentError } = agent;
+  const activity = missionActivityView(agent);
   const logs = liveLogs ?? agent.logs;
 
   const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
@@ -557,6 +561,11 @@ export function AgentDetail() {
           <div className="flex items-center justify-between mb-3">
             <div className="label">logs</div>
             <div className="flex items-center gap-2">
+              {logsError ? (
+                <span className="text-[10px] text-amber-400" role="status">log fetch failed — showing last known output</span>
+              ) : logsFetching ? (
+                <span className="text-[10px] text-gray-600 animate-pulse" role="status">updating…</span>
+              ) : null}
               <span className="text-[10px] text-gray-600">{logs.length} lines</span>
               <button
                 onClick={copyLogs}

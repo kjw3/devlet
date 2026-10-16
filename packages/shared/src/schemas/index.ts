@@ -129,11 +129,18 @@ export const AgentStatusSchema = z.enum([
   "error",
 ]);
 
+export const MissionActivitySchema = z.object({
+  state: z.enum(["started", "completed", "failed"]),
+  since: z.string().datetime(),
+});
+
 export const MissionProgressSchema = z.object({
   currentStep: z.number().int().min(0),
   completed: z.array(z.number().int().min(0)),
   startedAt: z.string().datetime(),
   completedAt: z.string().datetime().optional(),
+  /** Agent-reported mission lifecycle (started/completed/failed). */
+  activity: MissionActivitySchema.optional(),
 });
 
 export const AgentStateSchema = z.object({

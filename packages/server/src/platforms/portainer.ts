@@ -43,6 +43,7 @@ export async function probePortainer(): Promise<PortainerStatus> {
     return {
       connected: false,
       configured: false,
+      observedAt: new Date().toISOString(),
       endpoints: [],
       error: "PORTAINER_URL or PORTAINER_API_KEY not configured",
     };
@@ -82,6 +83,7 @@ export async function probePortainer(): Promise<PortainerStatus> {
 
     return {
       connected: true,
+      observedAt: new Date().toISOString(),
       version: statusData.Version,
       endpoints: endpoints.map((ep) => ({
         id: ep.Id,
@@ -112,6 +114,7 @@ export async function probePortainer(): Promise<PortainerStatus> {
   } catch (err) {
     return {
       connected: false,
+      observedAt: new Date().toISOString(),
       endpoints: [],
       error: String(err),
     };

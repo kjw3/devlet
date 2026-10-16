@@ -7,11 +7,16 @@ export type PlatformTarget =
   | { type: "proxmox"; node: string; vmType: "lxc" | "qemu" }
   | { type: "komodo"; serverId: string; serverName?: string };
 
-// Status shapes returned by platform health checks
+// Status shapes returned by platform health checks.
+// All status shapes carry `observedAt` (ISO timestamp of the probe that produced
+// the data) when the server attached it; older servers may omit it. Clients must
+// treat a missing/old `observedAt` as "freshness unknown", not as current.
 export interface DockerStatus {
   coreCount?: number;
   totalMemoryMb?: number;
   connected: boolean;
+  /** ISO time the producing probe ran; absent on older servers (freshness unknown). */
+  observedAt?: string;
   /** False when the platform has no credentials/socket here; the UI hides it. Absent means configured. */
   configured?: boolean;
   version?: string;
@@ -51,6 +56,8 @@ export interface PortainerStack {
 
 export interface PortainerStatus {
   connected: boolean;
+  /** ISO time the producing probe ran; absent on older servers (freshness unknown). */
+  observedAt?: string;
   /** False when the platform has no credentials/socket here; the UI hides it. Absent means configured. */
   configured?: boolean;
   version?: string;
@@ -81,6 +88,8 @@ export interface ProxmoxNode {
 
 export interface ProxmoxStatus {
   connected: boolean;
+  /** ISO time the producing probe ran; absent on older servers (freshness unknown). */
+  observedAt?: string;
   /** False when the platform has no credentials/socket here; the UI hides it. Absent means configured. */
   configured?: boolean;
   version?: string;
@@ -130,6 +139,8 @@ export interface KomodoServer {
 
 export interface KomodoStatus {
   connected: boolean;
+  /** ISO time the producing probe ran; absent on older servers (freshness unknown). */
+  observedAt?: string;
   /** False when the platform has no credentials/socket here; the UI hides it. Absent means configured. */
   configured?: boolean;
   version?: string;

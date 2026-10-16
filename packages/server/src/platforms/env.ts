@@ -1,6 +1,8 @@
 import type { AgentConfig } from "@devlet/shared";
 import { loadModelDefaults } from "../models/config.js";
 import { loadAgentTypeConfig } from "../agents/typeConfig.js";
+import { buildAgentEventToken } from "../agents/event-token.js";
+import { config as serverConfig } from "../config.js";
 
 /**
  * Build the full env array for an agent container.
@@ -70,10 +72,23 @@ function detectActiveProvider(): Provider | null {
 
 export async function buildContainerEnv(config: AgentConfig): Promise<string[]> {
   // 1. Devlet runtime vars
+  // Mission lifecycle reporting: the entrypoint POSTs process-boundary events
+  // (started/completed/failed) to the server. The token is scoped to this
+  // agent only — not the full DEVLET_AUTH_TOKEN. Omitted when the server runs
+  // without DEVLET_AUTH_TOKEN (unit-test environments); agents then simply
+  // don't report lifecycle events.
+  const eventTokenVars = process.env["DEVLET_AUTH_TOKEN"]
+    ? [
+        `DEVLET_AGENT_ID=${config.id}`,
+        `DEVLET_SERVER_URL=${serverConfig.publicBaseUrl.replace(/\/$/, "")}`,
+        `DEVLET_AGENT_EVENT_TOKEN=${buildAgentEventToken(config.id)}`,
+      ]
+    : [];
   const devletVars = [
     `DEVLET_AGENT_TYPE=${config.type}`,
     `DEVLET_AGENT_NAME=${config.name}`,
     `DEVLET_AGENT_ROLE=${config.role}`,
+    ...eventTokenVars,
     // Keep-alive is controlled by onComplete, not the placement-level persistent flag.
     // "idle" = stay alive after mission; "terminate" = exit. config.persistent only
     // affects scheduler placement (Portainer/Proxmox vs ephemeral Docker).

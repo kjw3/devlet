@@ -7,8 +7,36 @@ import { ModelConfig } from "./pages/ModelConfig.js";
 import { AgentConfig } from "./pages/AgentConfig.js";
 import { Settings } from "./pages/Settings.js";
 import { PlatformSidebar } from "./components/PlatformSidebar.js";
-import { DEVLET_AUTH_STORAGE_KEY } from "./trpc.js";
-import { apiFetch, SESSION_EXPIRED_EVENT } from "./lib/api-transport.js";
+import { trpc, DEVLET_AUTH_STORAGE_KEY } from "./trpc.js";
+import { SESSION_EXPIRED_EVENT } from "./lib/api-transport.js";
+import { markPerf } from "./lib/perf.js";
+
+/** Branded loading shell shown instead of a blank page while auth/data resolve. */
+function LoadingShell({ label }: { label: string }) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-surface px-6" role="status">
+      <div className="mono-header text-lg text-accent-cyan tracking-widest uppercase">devlet</div>
+      <div className="text-[12px] text-gray-500 mt-2 animate-pulse">{label}</div>
+    </div>
+  );
+}
+
+function SessionErrorShell({ label, detail, actions, alert }: {
+  label: string;
+  detail?: string;
+  actions: React.ReactNode;
+  alert?: boolean;
+}) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-surface px-6">
+      <div className="card max-w-md p-6 space-y-4" role={alert ? "alert" : undefined}>
+        <div className="mono-header text-base text-gray-100">{label}</div>
+        {detail && <p className="text-[12px] text-gray-400 break-words">{detail}</p>}
+        <div className="flex flex-wrap gap-2">{actions}</div>
+      </div>
+    </div>
+  );
+}
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState(() =>
@@ -23,44 +51,87 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     window.addEventListener(SESSION_EXPIRED_EVENT, expired);
     return () => window.removeEventListener(SESSION_EXPIRED_EVENT, expired);
   }, []);
-  // "unknown" while probing; "open" when a reverse proxy (e.g. Caddy + authentik) injects the bearer token.
-  const [proxyAuth, setProxyAuth] = useState<"unknown" | "open" | "closed">(token ? "closed" : "unknown");
+  const utils = trpc.useUtils();
+
+  // Lightweight authenticated-session probe: middleware only, no agent list,
+  // no platform probes. Replaces the old raw `/trpc/agents.list` auth fetch.
+  const sessionQuery = trpc.auth.session.useQuery(undefined, {
+    retry: false,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: "always",
+  });
 
   useEffect(() => {
-    if (token) return;
-    let cancelled = false;
-    apiFetch("/trpc/agents.list")
-      .then((response) => {
-        if (!cancelled) setProxyAuth(response.ok ? "open" : "closed");
-      })
-      .catch(() => {
-        if (!cancelled) setProxyAuth("closed");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+    if (sessionQuery.isSuccess) markPerf("session-resolved");
+  }, [sessionQuery.isSuccess]);
+  useEffect(() => {
+    markPerf("app-shell");
+  }, []);
+
+  const errorCode = sessionQuery.error?.data?.code;
+  const isUnauthorized = errorCode === "UNAUTHORIZED" || errorCode === "FORBIDDEN";
+  // Anything without a tRPC error code is a transport/server problem, not an auth verdict.
+  const isConnectivityProblem = sessionQuery.isError && !isUnauthorized;
 
   if (sessionExpired) {
-    return <div className="min-h-screen flex items-center justify-center bg-surface-base px-6">
-      <div className="card max-w-md p-6 space-y-4" role="alert">
-        <div className="text-gray-100">Your login session has expired</div>
-        <p className="text-[12px] text-gray-400">Reconnect to sign in again and return to this page. Your agents continue running.</p>
-        <button className="btn-primary" onClick={() => window.location.reload()}>reconnect / sign in</button>
-      </div>
-    </div>;
+    return <SessionErrorShell
+      alert
+      label="Your login session has expired"
+      detail="Reconnect to sign in again and return to this page. Your agents continue running."
+      actions={<button className="btn-primary" onClick={() => window.location.reload()}>reconnect / sign in</button>}
+    />;
   }
 
-  if (token || proxyAuth === "open") {
+  if (sessionQuery.isSuccess) {
     return <>{children}</>;
   }
 
-  if (proxyAuth === "unknown") {
-    return null;
+  if (sessionQuery.isPending) {
+    return <LoadingShell label="Checking your session…" />;
   }
 
+  if (isUnauthorized && token) {
+    // A stored bearer token was rejected — same protection as before, but with
+    // a clear message instead of a silent full-page failure.
+    return <SessionErrorShell
+      alert
+      label="Your login session has expired"
+      detail="Reconnect to sign in again and return to this page. Your agents continue running."
+      actions={
+        <button
+          className="btn-primary"
+          onClick={() => {
+            window.localStorage.removeItem(DEVLET_AUTH_STORAGE_KEY);
+            window.location.reload();
+          }}
+        >
+          reconnect / sign in
+        </button>
+      }
+    />;
+  }
+
+  if (isConnectivityProblem) {
+    return <SessionErrorShell
+      label="Can't reach the devlet server"
+      detail={sessionQuery.error?.message}
+      actions={
+        <>
+          <button className="btn-primary" disabled={sessionQuery.isFetching} onClick={() => void sessionQuery.refetch()}>
+            {sessionQuery.isFetching ? "checking…" : "retry"}
+          </button>
+          <button className="btn-ghost" onClick={() => window.location.reload()}>reload page</button>
+        </>
+      }
+    />;
+  }
+
+  // Unauthorized with no stored token: offer the bearer-token form. If the
+  // deployment relies on reverse-proxy SSO, this form only appears when the
+  // server itself rejected the request — a network outage never lands here.
   return (
-    <div className="min-h-screen flex items-center justify-center bg-surface-base px-6">
+    <div className="min-h-screen flex items-center justify-center bg-surface px-6">
       <form
         className="card w-full max-w-md p-6 space-y-4"
         onSubmit={(event) => {
@@ -69,6 +140,8 @@ function AuthGate({ children }: { children: React.ReactNode }) {
           if (!trimmed) return;
           window.localStorage.setItem(DEVLET_AUTH_STORAGE_KEY, trimmed);
           setToken(trimmed);
+          setDraft(trimmed);
+          void utils.auth.session.invalidate();
         }}
       >
         <div>
@@ -83,6 +156,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
           onChange={(event) => setDraft(event.target.value)}
           className="w-full bg-surface-raised border border-surface-border rounded-sm px-3 py-2 text-sm text-gray-100 outline-none focus:border-accent-cyan"
           placeholder="DEVLET_AUTH_TOKEN"
+          aria-label="DEVLET_AUTH_TOKEN"
           autoFocus
         />
         <button className="btn-primary w-full" type="submit">
@@ -97,7 +171,7 @@ export default function App() {
   return (
     <AuthGate>
       <div className="h-screen flex flex-col overflow-hidden">
-        <nav className="border-b border-surface-border bg-surface-raised px-6 py-2 flex items-center gap-4 flex-shrink-0">
+        <nav className="border-b border-surface-border bg-surface-raised px-6 py-2 flex items-center gap-4 flex-shrink-0" aria-label="Primary">
           <NavLink to="/" className="text-accent-cyan font-bold text-[13px] tracking-widest uppercase hover:text-accent-cyan/80 transition-colors">
             devlet
           </NavLink>

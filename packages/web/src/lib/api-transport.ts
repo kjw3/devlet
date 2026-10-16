@@ -1,15 +1,26 @@
 export const SESSION_EXPIRED_EVENT = "devlet:session-expired";
 
+import { recordRequest } from "./perf.js";
+
 /** Do not follow proxy login redirects with fetch: cross-origin login pages
  * otherwise surface as an indistinguishable CORS NetworkError. Navigation is
  * offered separately so mutations are never automatically replayed. */
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const response = await fetch(input, { ...init, credentials: "same-origin", redirect: "manual" });
-  if (isLoginResponse(response)) {
-    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
-    throw new Error("Your login session has expired. Reconnect to sign in again.");
+  const url = typeof input === "string" ? input : input instanceof URL ? input.pathname + input.search : input.url;
+  const isTrpc = url.startsWith("/trpc") || url.includes("/trpc?") || url.includes("/trpc/");
+  const started = isTrpc ? performance.now() : 0;
+  try {
+    const response = await fetch(input, { ...init, credentials: "same-origin", redirect: "manual" });
+    if (isTrpc) recordRequest(url, performance.now() - started, response.ok);
+    if (isLoginResponse(response)) {
+      window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+      throw new Error("Your login session has expired. Reconnect to sign in again.");
+    }
+    return response;
+  } catch (error) {
+    if (isTrpc) recordRequest(url, performance.now() - started, false);
+    throw error;
   }
-  return response;
 }
 
 export function isLoginResponse(response: Pick<Response, "type" | "status" | "headers">): boolean {

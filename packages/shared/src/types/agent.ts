@@ -34,6 +34,24 @@ export interface MissionProgress {
   completed: number[];
   startedAt: string;
   completedAt?: string;
+  /**
+   * Truthful runtime activity, reported by the agent entrypoint at process
+   * boundaries. Free-form missions have no percentage — this is the only
+   * execution signal the UI may display. Absent for agents hired before this
+   * field existed or for agents without a mission.
+   */
+  activity?: MissionActivity;
+}
+
+/**
+ * Mission execution lifecycle as observed by the agent itself:
+ * - `started`: the mission process was launched (it is executing or awaiting a
+ *   model response — not distinguishable from outside the container).
+ * - `completed` / `failed`: the mission process exited (with code 0 / non-zero).
+ */
+export interface MissionActivity {
+  state: "started" | "completed" | "failed";
+  since: string; // ISO timestamp of the last reported transition
 }
 
 export interface Mission {

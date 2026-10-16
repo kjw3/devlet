@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import type { AgentConfig, AgentState, PlatformTarget } from "@devlet/shared";
 import { config } from "./config.js";
 import { probePortainer } from "./platforms/portainer.js";
-import { probeKomodo } from "./platforms/komodo.js";
+import { probeKomodoCached } from "./platforms/komodo.js";
 import { allocateVmid, getLxcGuestIp, getQemuGuestIp } from "./platforms/proxmox-client.js";
 import { loadAgentState } from "./agents/state.js";
 
@@ -41,9 +41,15 @@ export async function getPortainerEndpointHost(endpointId: number): Promise<stri
   }
 }
 
+/**
+ * Host for a Komodo server, via the cached probe (10 s TTL + in-flight dedup).
+ * Per-agent access resolution used to pay a full-fleet Komodo probe each time;
+ * the cache collapses repeated resolutions and keeps a slow Komodo core from
+ * stalling agent detail enrichment.
+ */
 export async function getKomodoServerHost(serverId: string): Promise<string> {
   try {
-    const status = await probeKomodo();
+    const status = await probeKomodoCached();
     const server = status.servers.find(
       (item) => item.id === serverId || item.name === serverId
     );
@@ -278,6 +284,21 @@ export async function buildResolvedAgentSubdomainUrl(
   const targetUrl = await resolveSurfaceTargetUrlForConfig(agentConfig, surface);
   if (!targetUrl) return null;
   return buildAgentSubdomainUrl(agentConfig.id, surface, targetUrl, extraQuery);
+}
+
+/**
+ * Preferred access URL for an already-resolved target: wildcard subdomain when
+ * supported, else the path proxy. Lets callers that resolved the host once
+ * (detail enrichment) build URLs without re-resolving per surface.
+ */
+export function buildAgentAccessUrlForTarget(
+  agentConfig: AgentConfig,
+  surface: AgentAccessSurface,
+  targetUrl: string,
+  extraQuery?: Record<string, string | undefined>
+): string {
+  return buildAgentSubdomainUrl(agentConfig.id, surface, targetUrl, extraQuery)
+    ?? buildAgentProxyUrl(agentConfig.id, surface, targetUrl, extraQuery);
 }
 
 export async function buildPreferredAgentAccessUrl(

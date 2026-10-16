@@ -59,6 +59,7 @@ export async function probeProxmox(): Promise<ProxmoxStatus> {
     return {
       connected: false,
       configured: false,
+      observedAt: new Date().toISOString(),
       nodes: [],
       error: "Proxmox credentials not configured (PROXMOX_URL, PROXMOX_USER, PROXMOX_TOKEN_ID, PROXMOX_TOKEN_SECRET)",
     };
@@ -91,6 +92,7 @@ export async function probeProxmox(): Promise<ProxmoxStatus> {
 
     const status: ProxmoxStatus = {
       connected: true,
+      observedAt: new Date().toISOString(),
       version: versionData.version,
       nodes: nodesData.map((n) => ({
         name: n.node,
@@ -129,6 +131,7 @@ export async function probeProxmox(): Promise<ProxmoxStatus> {
   } catch (err) {
     return {
       connected: false,
+      observedAt: new Date().toISOString(),
       nodes: [],
       error: String(err),
     };

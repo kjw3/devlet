@@ -139,6 +139,7 @@ export async function probeDocker(): Promise<DockerStatus> {
     return {
       connected: false,
       configured: false,
+      observedAt: new Date().toISOString(),
       containers: { running: 0, stopped: 0, total: 0 },
       error: "No Docker socket mounted (local Docker is disabled)",
     };
@@ -161,6 +162,7 @@ export async function probeDocker(): Promise<DockerStatus> {
 
     return {
       connected: true,
+      observedAt: new Date().toISOString(),
       version: versionInfo.Version,
       containers: { running, stopped, total },
       gpuAvailable: Boolean(info.Runtimes?.nvidia),
@@ -172,6 +174,7 @@ export async function probeDocker(): Promise<DockerStatus> {
   } catch (error) {
     return {
       connected: false,
+      observedAt: new Date().toISOString(),
       containers: { running: 0, stopped: 0, total: 0 },
       error: getErrorMessage(error),
     };

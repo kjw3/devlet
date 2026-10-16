@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { trpc } from "../trpc.js";
 import { AgentCard } from "../components/AgentCard.js";
 import { ConfirmModal } from "../components/ConfirmModal.js";
+import { markPerf } from "../lib/perf.js";
 import {
   LIFECYCLE_LABEL,
   LIFECYCLE_ORDER,
@@ -46,10 +47,18 @@ export function Dashboard() {
   };
   const [fireTarget, setFireTarget] = useState<string | null>(null);
 
-  const { data: agents = [], isLoading, error } = trpc.agents.list.useQuery(
-    undefined,
-    { refetchInterval: 5_000 }
-  );
+  // React Query retains the last successful data when a background refetch
+  // fails — the grid keeps showing cached agents alongside an interruption
+  // notice instead of replacing them with an outage screen.
+  const agentsQuery = trpc.agents.list.useQuery(undefined, { refetchInterval: 5_000 });
+  const { data, isLoading, isFetching, error, refetch, dataUpdatedAt } = agentsQuery;
+  const agents = data ?? [];
+  const hasData = data !== undefined;
+  const lastUpdatedLabel = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : "the last successful refresh";
+
+  useEffect(() => {
+    if (hasData) markPerf("fleet-data");
+  }, [hasData]);
 
   const utils = trpc.useUtils();
   const fireMutation = trpc.agents.fire.useMutation({
@@ -106,6 +115,12 @@ export function Dashboard() {
   const filtersActive = lifecycle !== "all" || kind !== "all";
 
   const targetAgent = agents.find((a) => a.config.id === fireTarget);
+  const showConnectionNotice = Boolean(error) && hasData;
+  const showLoadingState = isLoading && !error;
+  const showEmptyState = hasData && !error && filtered.length === 0;
+  const showGrid = hasData && filtered.length > 0;
+  // While loading, counts are unknown — show a placeholder instead of a lying 0.
+  const countText = (count: number) => (hasData ? String(count) : "–");
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -122,7 +137,7 @@ export function Dashboard() {
         <div className="flex items-center gap-3">
           <div className="flex gap-2 text-[11px]">
             <span className="px-2 py-0.5 rounded-sm bg-status-running/10 text-status-running border border-status-running/20">
-              {fleet.running ?? 0} running
+              {countText(fleet.running ?? 0)} running
             </span>
             {(fleet.starting ?? 0) > 0 && (
               <span className="px-2 py-0.5 rounded-sm bg-status-provisioning/10 text-status-provisioning border border-status-provisioning/20">
@@ -177,20 +192,32 @@ export function Dashboard() {
 
       {/* Agent grid */}
       <div className="flex-1 overflow-y-auto p-6">
-        {error && (
-          <div className="text-center text-accent-red text-[12px] py-8">
+        {showConnectionNotice && (
+          <div role="status" className="mb-4 px-3 py-2 rounded-sm border border-amber-500/30 bg-amber-500/5 text-[12px] text-amber-300 flex items-center gap-3">
+            <span>Updates interrupted — showing data from {lastUpdatedLabel}. Agents are unaffected.</span>
+            <button className="btn-ghost" disabled={isFetching} onClick={() => void refetch()}>
+              {isFetching ? "retrying…" : "retry now"}
+            </button>
+          </div>
+        )}
+
+        {error && !hasData && (
+          <div className="text-center text-accent-red text-[12px] py-8" role="alert">
             could not reach server — is devlet-server running?
             <div className="text-gray-600 text-[11px] mt-1">{error.message}</div>
+            <button className="btn-ghost mt-3" disabled={isFetching} onClick={() => void refetch()}>
+              {isFetching ? "retrying…" : "retry"}
+            </button>
           </div>
         )}
 
-        {isLoading && !error && (
-          <div className="text-center text-gray-600 text-[12px] py-8 animate-pulse">
-            connecting to server...
+        {showLoadingState && (
+          <div className="text-center text-gray-600 text-[12px] py-8 animate-pulse" aria-busy="true">
+            loading agents...
           </div>
         )}
 
-        {!isLoading && !error && filtered.length === 0 && (
+        {showEmptyState && (
           <div className="flex flex-col items-center justify-center h-48 text-gray-600">
             <div className="text-4xl mb-3 opacity-20">◻</div>
             {filtersActive && agents.length > 0 ? (
@@ -214,8 +241,8 @@ export function Dashboard() {
           </div>
         )}
 
-        {!isLoading && !error && filtered.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {showGrid && (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" aria-busy={isFetching}>
             {filtered.map((agent) => (
               <AgentCard
                 onDelete={(id) => deleteMutation.mutate(id)}

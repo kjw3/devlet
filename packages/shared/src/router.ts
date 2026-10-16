@@ -56,6 +56,15 @@ function unimplemented(): never {
 // ─── Router definition ────────────────────────────────────────────────────────
 
 export const appRouter = router({
+  auth: router({
+    /** Lightweight authenticated-session probe. Performs no platform probes,
+     *  access discovery, agent enumeration, or inference calls — only the
+     *  authentication middleware runs. Used by the web app to distinguish
+     *  "signed in", "unauthorized", and "server unreachable" without paying
+     *  for an agent list fetch. */
+    session: publicProcedure.query(unimplemented as () => { authenticated: true; serverTime: string }),
+  }),
+
   agents: router({
     list: publicProcedure.query(unimplemented as () => AgentState[]),
 

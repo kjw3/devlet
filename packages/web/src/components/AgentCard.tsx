@@ -1,6 +1,7 @@
 import type { AgentState } from "@devlet/shared";
 import { AGENT_TYPE_LABELS } from "@devlet/shared";
 import { StatusDot, StatusBadge } from "./StatusDot.js";
+import { missionActivityView } from "../lib/lifecycle.js";
 import { useNavigate } from "react-router-dom";
 
 interface AgentCardProps {
@@ -18,16 +19,9 @@ const PLATFORM_LABELS = {
   komodo: "Komodo",
 } as const;
 
-function progressPct(agent: AgentState): number {
-  const total = agent.config.mission.steps.length;
-  if (total === 0) return 0;
-  return Math.round((agent.missionProgress.completed.length / total) * 100);
-}
-
 export function AgentCard({ agent, onFire, onDelete, onStart, onRecover }: AgentCardProps) {
   const navigate = useNavigate();
-  const pct = progressPct(agent);
-  const isActive = agent.status === "running" || agent.status === "bootstrapping";
+  const activity = missionActivityView(agent);
 
   return (
     <div
@@ -67,19 +61,30 @@ export function AgentCard({ agent, onFire, onDelete, onStart, onRecover }: Agent
         {agent.config.mission.description}
       </div>
 
-      {/* Progress bar */}
-      {isActive && (
-        <div>
-          <div className="flex justify-between items-center mb-1">
-            <span className="label">mission progress</span>
-            <span className="text-[10px] text-gray-500">{pct}%</span>
-          </div>
-          <div className="h-0.5 bg-surface-border rounded-full overflow-hidden">
-            <div
-              className="h-full bg-accent-cyan rounded-full transition-all"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
+      {/* Truthful task activity — no invented percentages. */}
+      {activity && (
+        <div
+          className={`text-[11px] flex items-center gap-1.5 ${
+            activity.tone === "failed"
+              ? "text-accent-red"
+              : activity.tone === "done"
+              ? "text-status-running"
+              : "text-accent-cyan"
+          }`}
+        >
+          <span
+            className={`status-dot flex-shrink-0 ${
+              activity.tone === "failed"
+                ? "bg-status-error"
+                : activity.tone === "done"
+                ? "bg-status-running"
+                : "bg-accent-cyan animate-pulse"
+            }`}
+            aria-hidden
+          />
+          <span className={activity.tone === "active" ? "animate-pulse" : ""}>
+            {activity.label}
+          </span>
         </div>
       )}
 

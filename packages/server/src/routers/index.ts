@@ -47,19 +47,15 @@ import {
 } from "../platforms/portainer-deploy.js";
 import { probePortainer } from "../platforms/portainer.js";
 import { probeProxmox, validateProxmoxPlacement } from "../platforms/proxmox.js";
-import { probeKomodo } from "../platforms/komodo.js";
+import { probeKomodo, probeKomodoCached } from "../platforms/komodo.js";
 import { isServerOnTailnet } from "../tailscale/node.js";
 import { findAgentDevice, probeTailscale, removeAgentDevices, isTailscaleEnabledFor } from "../tailscale/client.js";
 import { provisionAgent, stopAgent, removeAgent, getAgentLogs, removeOrphanedProvision } from "../platforms/dispatch.js";
+import { listAgentStates, loadAgentState, saveAgentState, deleteAgentState } from "../agents/state.js";
+import { sanitizeEnv, sanitizeAgentStateSummary } from "../agents/sanitize.js";
 import {
-  listAgentStates,
-  loadAgentState,
-  saveAgentState,
-  deleteAgentState,
-} from "../agents/state.js";
-import {
-  buildAgentProxyUrl,
-  buildPreferredAgentAccessUrl,
+  buildAgentSubdomainUrl,
+  buildAgentAccessUrlForTarget,
   buildResolvedAgentSubdomainUrl,
   resolveAgentAccessHost,
   resolveProxmoxAgentHost,
@@ -88,26 +84,6 @@ import {
 
 const t = initTRPC.context<{ authHeader?: string }>().create();
 const AUTH_SCHEME = "Bearer ";
-const INTERNAL_ONLY_ENV_KEYS = new Set([
-  "DEVLET_TERMINAL_PORT",
-  "DEVLET_SSH_PORT",
-  "DEVLET_SSH_USERNAME",
-  "DEVLET_SSH_AUTHORIZED_KEYS_B64",
-  "DEVLET_SSH_HOST_KEY_PRIVATE_B64",
-  "DEVLET_SSH_HOST_KEY_PUBLIC_B64",
-  "DEVLET_SSH_HOST_KEY_FINGERPRINT",
-  "OPENCLAW_HOST_PORT",
-  "OPENCLAW_ALLOWED_ORIGINS",
-  "OPENCLAW_GATEWAY_TOKEN",
-  "MOLTIS_HOST_PORT",
-  "MOLTIS_PASSWORD",
-]);
-const SECRET_ENV_PATTERNS = [
-  /(^|_)(API_KEY|TOKEN|PASSWORD|SECRET)$/i,
-  /PRIVATE_KEY/i,
-  /SESSION/i,
-  /AUTH/i,
-];
 
 function authenticateRequest(authHeader?: string): void {
   const expected = process.env["DEVLET_AUTH_TOKEN"];
@@ -136,91 +112,93 @@ const authProcedure = t.procedure.use(({ ctx, next }) => {
   return next();
 });
 
-function sanitizeEnvValue(key: string, value: string): string | null {
-  if (INTERNAL_ONLY_ENV_KEYS.has(key)) {
-    return null;
-  }
-
-  if (SECRET_ENV_PATTERNS.some((pattern) => pattern.test(key))) {
-    return "[redacted]";
-  }
-
-  return value;
-}
-
 function getMoltisInitialPassword(config: AgentConfig): string {
   return config.env["MOLTIS_PASSWORD"] ?? `devlet-${config.name}`;
 }
 
-async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
-  const env = Object.fromEntries(
-    Object.entries(state.config.env)
-      .map(([key, value]) => [key, sanitizeEnvValue(key, value)] as const)
-      .filter((entry): entry is [string, string] => entry[1] !== null)
-  );
+/**
+ * Detail-level enrichment: resolves connection surfaces for ONE agent.
+ *
+ * The host is resolved at most once, and inapplicable surfaces are skipped
+ * before any remote work (an agent without an SSH port never pays for host
+ * resolution just to answer SSH). This is only used by `agents.get` — the
+ * list path stays pure via `sanitizeAgentStateSummary`.
+ */
+async function enrichAgentAccess(state: AgentState): Promise<AgentState> {
+  const env = sanitizeEnv(state.config.env);
+  const config = { ...state.config, env };
 
   if (state.status !== "running" && state.status !== "idle") {
-    const { access: _access, ...rest } = state;
-    return { ...rest, config: { ...state.config, env } };
+    return { ...state, config };
   }
+
+  // Internal runtime vars are read from the RAW env — sanitizeEnv removes them
+  // from the serialized copy because they are not for display.
+  const rawEnv = state.config.env;
+  const terminalPort = rawEnv["DEVLET_TERMINAL_PORT"];
+  const sshPort = rawEnv["DEVLET_SSH_PORT"];
+  const sshUsername = rawEnv["DEVLET_SSH_USERNAME"] ?? "agent";
+  const sshFingerprint = rawEnv["DEVLET_SSH_HOST_KEY_FINGERPRINT"];
+  const openclawPort = rawEnv["OPENCLAW_HOST_PORT"];
+  const openclawToken = rawEnv["OPENCLAW_GATEWAY_TOKEN"];
+  const moltisPort = rawEnv["MOLTIS_HOST_PORT"];
+  const wantsOpenclaw = state.config.type === "openclaw" && Boolean(openclawPort);
+  const wantsMoltis = state.config.type === "moltis";
+  const wantsHost = Boolean(terminalPort || sshPort || wantsOpenclaw || wantsMoltis);
 
   let access: AgentState["access"];
-  const terminalPort = state.config.env["DEVLET_TERMINAL_PORT"];
-  const sshPort = state.config.env["DEVLET_SSH_PORT"];
-  const sshUsername = state.config.env["DEVLET_SSH_USERNAME"] ?? "agent";
-  const sshFingerprint = state.config.env["DEVLET_SSH_HOST_KEY_FINGERPRINT"];
-  const openclawPort = state.config.env["OPENCLAW_HOST_PORT"];
-  const openclawToken = state.config.env["OPENCLAW_GATEWAY_TOKEN"];
-  const terminalTarget = await resolveSurfaceTargetUrl(state, "terminal");
-  const openclawTarget = await resolveSurfaceTargetUrl(state, "openclaw");
-  const moltisTarget = await resolveSurfaceTargetUrl(state, "moltis");
-  const sshHost = sshPort ? await resolveAccessHostForAgent(state.config.platform, state.config.id) : null;
 
-  if (terminalPort && terminalTarget) {
-    const terminalUrl = await buildPreferredAgentAccessUrl(state.config, "terminal");
-    access = {
-      ...access,
-      terminal: {
-        url: terminalUrl ?? buildAgentProxyUrl(state.config.id, "terminal", terminalTarget),
-      },
-    };
+  if (wantsHost) {
+    // Single host resolution for every surface of this agent.
+    const host = await resolveAccessHostForAgent(state.config.platform, state.config.id);
+    const targetFor = (port?: string) => (host && port ? `http://${host}:${port}` : null);
+    const terminalTarget = targetFor(terminalPort);
+    const openclawTarget = wantsOpenclaw ? targetFor(openclawPort) : null;
+    const moltisTarget = wantsMoltis ? targetFor(moltisPort) : null;
+
+    if (terminalPort && terminalTarget) {
+      access = {
+        ...access,
+        terminal: {
+          url: buildAgentAccessUrlForTarget(state.config, "terminal", terminalTarget),
+        },
+      };
+    }
+
+    if (sshPort && host) {
+      access = {
+        ...access,
+        ssh: {
+          host,
+          port: Number(sshPort),
+          username: sshUsername,
+          ...(sshFingerprint ? { hostKeyFingerprint: sshFingerprint } : {}),
+        },
+      };
+    }
+
+    if (wantsOpenclaw && openclawTarget) {
+      access = {
+        ...access,
+        openclaw: {
+          url: buildAgentSubdomainUrl(state.config.id, "openclaw", openclawTarget) ?? openclawTarget,
+          ...(openclawToken ? { token: openclawToken } : {}),
+        },
+      };
+    }
+
+    if (wantsMoltis && moltisTarget) {
+      access = {
+        ...access,
+        moltis: {
+          url: buildAgentSubdomainUrl(state.config.id, "moltis", moltisTarget) ?? moltisTarget,
+          password: getMoltisInitialPassword(state.config),
+        },
+      };
+    }
   }
 
-  if (sshPort && sshHost) {
-    access = {
-      ...access,
-      ssh: {
-        host: sshHost,
-        port: Number(sshPort),
-        username: sshUsername,
-        ...(sshFingerprint ? { hostKeyFingerprint: sshFingerprint } : {}),
-      },
-    };
-  }
-
-  if (state.config.type === "openclaw" && openclawPort && openclawTarget) {
-    const openclawUrl = await buildResolvedAgentSubdomainUrl(state.config, "openclaw");
-    access = {
-      ...access,
-      openclaw: {
-        url: openclawUrl ?? openclawTarget,
-        ...(openclawToken ? { token: openclawToken } : {}),
-      },
-    };
-  }
-
-  if (state.config.type === "moltis" && moltisTarget) {
-    const moltisUrl = await buildResolvedAgentSubdomainUrl(state.config, "moltis");
-    access = {
-      ...access,
-      moltis: {
-        url: moltisUrl ?? moltisTarget,
-        password: getMoltisInitialPassword(state.config),
-      },
-    };
-  }
-
-  if ((state.status === "running" || state.status === "idle") && isTailscaleEnabledFor(state.config)) {
+  if (isTailscaleEnabledFor(state.config)) {
     const device = await findAgentDevice(state.config.id).catch(() => null);
     if (device) {
       const base = `https://${device.name.replace(/\.$/, "")}`;
@@ -244,10 +222,7 @@ async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
 
   return {
     ...state,
-    config: {
-      ...state.config,
-      env,
-    },
+    config,
     ...(access ? { access } : {}),
   };
 }
@@ -503,7 +478,9 @@ async function chooseRecoveryPlatform(
     probeDocker(),
     probePortainer(),
     probeProxmox(),
-    probeKomodo(),
+    // Recovery placement tolerates a ≤10 s cached Komodo snapshot; a hung
+    // Komodo core must not block recovery indefinitely.
+    probeKomodoCached(),
   ]);
 
   const portainer = portainerStatus.connected
@@ -546,10 +523,32 @@ async function chooseRecoveryPlatform(
 }
 
 export const appRouter = t.router({
-  agents: t.router({
-    list: authProcedure.query(async () => Promise.all((await listAgentStates()).map(sanitizeAgentState))),
+  auth: t.router({
+    // Lightweight session check for the web AuthGate: authentication middleware
+    // only — zero platform probes, access discovery, or agent enumeration.
+    session: authProcedure.query(() => ({ authenticated: true as const, serverTime: new Date().toISOString() })),
+  }),
 
-    get: authProcedure.input(z.string()).query(async ({ input }) => sanitizeAgentState(await loadAgentState(input))),
+  agents: t.router({
+    // List stays pure: file reads + env redaction only, no remote enrichment.
+    // A slow/offline platform host cannot delay fleet data. Detail-level
+    // access resolution (which may probe hosts) lives in `agents.get`.
+    list: authProcedure.query(async () => {
+      const started = Date.now();
+      const states = await listAgentStates();
+      const summarized = states.map(sanitizeAgentStateSummary);
+      const elapsed = Date.now() - started;
+      // Timing telemetry: counts and duration only — no agent names or mission content.
+      console.log(`[agents.list] agents=${summarized.length} elapsedMs=${elapsed}`);
+      return summarized;
+    }),
+
+    get: authProcedure.input(z.string()).query(async ({ input }) => {
+      const started = Date.now();
+      const enriched = await enrichAgentAccess(await loadAgentState(input));
+      console.log(`[agents.get] elapsedMs=${Date.now() - started}`);
+      return enriched;
+    }),
 
     health: authProcedure.input(z.string()).query(async ({ input }) => {
       const state = await loadAgentState(input);
@@ -748,7 +747,7 @@ export const appRouter = t.router({
             await saveAgentState(state);
           });
 
-        return sanitizeAgentState(state);
+        return sanitizeAgentStateSummary(state);
       }),
 
     fire: authProcedure.input(z.string()).mutation(async ({ input }) => {
@@ -800,7 +799,7 @@ export const appRouter = t.router({
       state.config.lastActiveAt = new Date().toISOString();
       state.logs.push(`${wasTerminated ? "Start" : "Restart"} requested — reprovisioning agent`);
       await saveAgentState(state);
-      return sanitizeAgentState(state);
+      return sanitizeAgentStateSummary(state);
     }),
 
     recover: authProcedure
@@ -831,7 +830,7 @@ export const appRouter = t.router({
           `Recovery requested — moved from ${oldPlatform.type}:${oldPlatformRef} to ${state.config.platform.type}:${platformRef}`
         );
         await saveAgentState(state);
-        return sanitizeAgentState(state);
+        return sanitizeAgentStateSummary(state);
       }),
 
     logs: authProcedure.input(z.string()).query(async ({ input }) => {
@@ -874,7 +873,7 @@ export const appRouter = t.router({
     }),
 
     komodo: t.router({
-      status: authProcedure.query(() => probeKomodo()),
+      status: authProcedure.query(() => probeKomodoCached()),
       exclusions: authProcedure.query(() => loadEffectivePlatformExclusions()),
       setExcluded: authProcedure
         .input(SetKomodoExclusionInputSchema)

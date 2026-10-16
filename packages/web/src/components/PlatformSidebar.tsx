@@ -1,11 +1,15 @@
 import type { DockerStatus, KomodoStatus, PortainerStatus, ProxmoxStatus } from "@devlet/shared";
 import { HostHardware } from "./HostHardware.js";
-import { trpc } from "../trpc.js";
+import { trpcInventory } from "../trpc.js";
 
+/** Connection indicator with three honest states: checking (unknown), ok, unreachable. */
 function ConnIcon({ ok, loading }: { ok: boolean; loading?: boolean }) {
-  if (loading) return <span className="status-dot bg-gray-700 animate-pulse" />;
+  if (loading) return <span className="status-dot bg-gray-700 animate-pulse" aria-label="checking" />;
   return (
-    <span className={`status-dot ${ok ? "bg-status-running" : "bg-status-error animate-pulse"}`} />
+    <span
+      className={`status-dot ${ok ? "bg-status-running" : "bg-status-error animate-pulse"}`}
+      aria-label={ok ? "connected" : "unreachable"}
+    />
   );
 }
 
@@ -24,7 +28,7 @@ function DockerPanel({ status, loading }: { status?: DockerStatus; loading: bool
       <div className="flex items-center justify-between text-[11px] py-0.5">
         <div className="flex items-center gap-2">
           <span className="text-gray-300">
-            {loading ? "..." : "local"}
+            {loading ? "checking…" : "local"}
           </span>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -32,7 +36,7 @@ function DockerPanel({ status, loading }: { status?: DockerStatus; loading: bool
             <span className={`label ${status?.connected ? "text-status-running" : "text-status-error"}`}>
               {status?.connected
                 ? `${status.containers.running}↑ ${status.containers.stopped}↓`
-                : "offline"}
+                : "unreachable"}
             </span>
           )}
           <HostHardware architecture={status?.architecture} gpuCount={status?.gpuCount} gpuAvailable={status?.gpuAvailable} />
@@ -50,8 +54,8 @@ function DockerPanel({ status, loading }: { status?: DockerStatus; loading: bool
 }
 
 function PortainerPanel({ status, loading }: { status?: PortainerStatus; loading: boolean }) {
-  const utils = trpc.useUtils();
-  const toggleExcluded = trpc.platforms.portainer.setExcluded.useMutation({
+  const utils = trpcInventory.useUtils();
+  const toggleExcluded = trpcInventory.platforms.portainer.setExcluded.useMutation({
     onSuccess: () => {
       void utils.platforms.portainer.status.invalidate();
       void utils.platforms.portainer.exclusions.invalidate();
@@ -64,7 +68,7 @@ function PortainerPanel({ status, loading }: { status?: PortainerStatus; loading
       <div className="flex items-center gap-2 mb-2">
         <ConnIcon ok={status?.connected ?? false} loading={loading} />
         <span className="text-[12px] text-gray-300">
-          {loading ? "..." : status?.connected ? `v${status.version}` : "disconnected"}
+          {loading ? "checking…" : status?.connected ? `v${status.version}` : "unreachable"}
         </span>
       </div>
       {status?.connected && (
@@ -100,8 +104,8 @@ function PortainerPanel({ status, loading }: { status?: PortainerStatus; loading
 }
 
 function ProxmoxPanel({ status, loading }: { status?: ProxmoxStatus; loading: boolean }) {
-  const utils = trpc.useUtils();
-  const toggleExcluded = trpc.platforms.proxmox.setExcluded.useMutation({
+  const utils = trpcInventory.useUtils();
+  const toggleExcluded = trpcInventory.platforms.proxmox.setExcluded.useMutation({
     onSuccess: () => {
       void utils.platforms.proxmox.status.invalidate();
       void utils.platforms.portainer.status.invalidate();
@@ -113,7 +117,7 @@ function ProxmoxPanel({ status, loading }: { status?: ProxmoxStatus; loading: bo
       <div className="flex items-center gap-2 mb-2">
         <ConnIcon ok={status?.connected ?? false} loading={loading} />
         <span className="text-[12px] text-gray-300">
-          {loading ? "..." : status?.connected ? `v${status.version}` : "disconnected"}
+          {loading ? "checking…" : status?.connected ? `v${status.version}` : "unreachable"}
         </span>
       </div>
       {!status?.connected && status?.error && (
@@ -149,8 +153,8 @@ function ProxmoxPanel({ status, loading }: { status?: ProxmoxStatus; loading: bo
 }
 
 function KomodoPanel({ status, loading }: { status?: KomodoStatus; loading: boolean }) {
-  const utils = trpc.useUtils();
-  const toggleExcluded = trpc.platforms.komodo.setExcluded.useMutation({
+  const utils = trpcInventory.useUtils();
+  const toggleExcluded = trpcInventory.platforms.komodo.setExcluded.useMutation({
     onSuccess: () => {
       void utils.platforms.komodo.status.invalidate();
       void utils.platforms.portainer.status.invalidate();
@@ -162,7 +166,7 @@ function KomodoPanel({ status, loading }: { status?: KomodoStatus; loading: bool
       <div className="flex items-center gap-2 mb-2">
         <ConnIcon ok={status?.connected ?? false} loading={loading} />
         <span className="text-[12px] text-gray-300">
-          {loading ? "..." : status?.connected ? `v${status.version}` : "disconnected"}
+          {loading ? "checking…" : status?.connected ? `v${status.version}` : "unreachable"}
         </span>
       </div>
       {!status?.connected && status?.error && (
@@ -198,19 +202,22 @@ function KomodoPanel({ status, loading }: { status?: KomodoStatus; loading: bool
 }
 
 export function PlatformSidebar() {
-  const { data: docker, isLoading: dockerLoading } = trpc.platforms.docker.status.useQuery(
+  // Platform inventory runs on the slow transport lane so its queries batch
+  // separately from the agent list/detail lane; a slow probe cannot hold
+  // fleet data behind a shared batch response.
+  const { data: docker, isLoading: dockerLoading } = trpcInventory.platforms.docker.status.useQuery(
     undefined,
     { refetchInterval: 10_000 }
   );
-  const { data: portainer, isLoading: portainerLoading } = trpc.platforms.portainer.status.useQuery(
+  const { data: portainer, isLoading: portainerLoading } = trpcInventory.platforms.portainer.status.useQuery(
     undefined,
     { refetchInterval: 10_000 }
   );
-  const { data: proxmox, isLoading: proxmoxLoading } = trpc.platforms.proxmox.status.useQuery(
+  const { data: proxmox, isLoading: proxmoxLoading } = trpcInventory.platforms.proxmox.status.useQuery(
     undefined,
     { refetchInterval: 10_000 }
   );
-  const { data: komodo, isLoading: komodoLoading } = trpc.platforms.komodo.status.useQuery(
+  const { data: komodo, isLoading: komodoLoading } = trpcInventory.platforms.komodo.status.useQuery(
     undefined,
     { refetchInterval: 15_000 }
   );

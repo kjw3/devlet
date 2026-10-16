@@ -19,6 +19,7 @@ import {
 import { config } from "./config.js";
 import { selectUpstream, startServerTailnetNode } from "./tailscale/node.js";
 import { recoverInterruptedProvisions } from "./agents/provision-recovery.js";
+import { recordAgentEvent, type AgentEventType } from "./agents/agent-events.js";
 import { bootstrapSshKeysFromEnv } from "./ssh/keyStore.js";
 
 const server = Fastify();
@@ -128,6 +129,35 @@ server.addHook("onRequest", async (request, reply) => {
 
 // Unauthenticated liveness probe for Docker/load balancers; exposes no state.
 server.get("/health", async () => ({ status: "ok" }));
+
+// Mission lifecycle events from agent containers (scoped HMAC token, not the
+// full DEVLET_AUTH_TOKEN). Body carries no mission content.
+const AGENT_EVENT_TYPES: readonly AgentEventType[] = [
+  "mission_started",
+  "mission_completed",
+  "mission_failed",
+];
+server.post("/api/agent-event", async (request: FastifyRequest, reply: FastifyReply) => {
+  const body = (request.body ?? {}) as Record<string, unknown>;
+  const event = body["event"] as AgentEventType | undefined;
+  if (!event || !AGENT_EVENT_TYPES.includes(event)) {
+    reply.code(400);
+    return reply.send({ ok: false, message: "unknown event type" });
+  }
+
+  const result = await recordAgentEvent({
+    agentId: String(body["agentId"] ?? ""),
+    token: String(body["token"] ?? ""),
+    event,
+    at: typeof body["at"] === "string" ? body["at"] : undefined,
+  });
+
+  if (!result.ok) {
+    reply.code(result.statusCode);
+    return reply.send({ ok: false, message: result.message });
+  }
+  return reply.send({ ok: true });
+});
 
 server.all("/trpc/*", async (request: FastifyRequest, reply: FastifyReply) => {
   // Fastify's JSON parser has already consumed the raw stream for

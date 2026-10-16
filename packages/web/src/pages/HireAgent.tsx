@@ -17,7 +17,7 @@ import {
 import { PlacementPreview } from "../components/PlacementPreview.js";
 import { DiskControls } from "../components/DiskControls.js";
 import { ResourceControls } from "../components/ResourceControls.js";
-import { trpc } from "../trpc.js";
+import { trpc, trpcInventory } from "../trpc.js";
 
 // ─── Agent icons ──────────────────────────────────────────────────────────────
 
@@ -236,7 +236,8 @@ export function HireAgent() {
     persistent: false,
     tailnet: true,
   });
-  const tailscaleStatus = trpc.platforms.tailscale.status.useQuery(undefined, { staleTime: 30_000 });
+  // Platform inventory + disk capacity: slow lane, never blocks agent queries.
+  const tailscaleStatus = trpcInventory.platforms.tailscale.status.useQuery(undefined, { staleTime: 30_000 });
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({
@@ -289,15 +290,23 @@ export function HireAgent() {
     if (idx > 0) setStep(STEPS[idx - 1]!);
   }
 
+  const utils = trpc.useUtils();
   const hireMutation = trpc.agents.hire.useMutation({
-    onSuccess: () => navigate("/"),
+    onSuccess: (state) => {
+      // Seed the list cache with the freshly registered agent and go straight
+      // to its detail page — provisioning continues server-side and the detail
+      // view polls for real status. No fake progress, no blocking spinner.
+      utils.agents.list.setData(undefined, (prev) => (prev ? [state, ...prev] : [state]));
+      void utils.agents.list.invalidate();
+      navigate(`/agents/${state.config.id}`);
+    },
   });
 
   // Live platform status for accurate scheduler preview
-  const { data: dockerStatus, isLoading: dockerLoading } = trpc.platforms.docker.status.useQuery(undefined, { staleTime: 10_000 });
-  const { data: portainerStatus, isLoading: portainerLoading } = trpc.platforms.portainer.status.useQuery(undefined, { staleTime: 10_000 });
-  const { data: proxmoxStatus, isLoading: proxmoxLoading } = trpc.platforms.proxmox.status.useQuery(undefined, { staleTime: 10_000 });
-  const { data: komodoStatus, isLoading: komodoLoading } = trpc.platforms.komodo.status.useQuery(undefined, { staleTime: 15_000 });
+  const { data: dockerStatus, isLoading: dockerLoading } = trpcInventory.platforms.docker.status.useQuery(undefined, { staleTime: 10_000 });
+  const { data: portainerStatus, isLoading: portainerLoading } = trpcInventory.platforms.portainer.status.useQuery(undefined, { staleTime: 10_000 });
+  const { data: proxmoxStatus, isLoading: proxmoxLoading } = trpcInventory.platforms.proxmox.status.useQuery(undefined, { staleTime: 10_000 });
+  const { data: komodoStatus, isLoading: komodoLoading } = trpcInventory.platforms.komodo.status.useQuery(undefined, { staleTime: 15_000 });
   const platformsLoading = dockerLoading || portainerLoading || proxmoxLoading || komodoLoading;
 
   const liveContext = {
@@ -334,7 +343,7 @@ export function HireAgent() {
 
   const resolvedPlatform = form.platformOverride ?? schedulerDecision?.placement;
 
-  const diskQuery = trpc.platforms.diskCapacity.useQuery(resolvedPlatform ?? { type: "docker" }, {
+  const diskQuery = trpcInventory.platforms.diskCapacity.useQuery(resolvedPlatform ?? { type: "docker" }, {
     enabled: !!resolvedPlatform, refetchInterval: 10_000, staleTime: 5_000,
   });
   const diskCapacity = diskQuery.data;

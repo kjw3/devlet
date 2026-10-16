@@ -44,6 +44,33 @@ keep_alive_if_persistent() {
   fi
 }
 
+# Helper: report mission lifecycle events to the devlet server.
+# Fire-and-forget (backgrounded, short timeout): a slow or unreachable server
+# must never delay or fail the mission. Events carry no mission content.
+report_mission_event() {
+  if [ -n "${DEVLET_SERVER_URL:-}" ] && [ -n "${DEVLET_AGENT_ID:-}" ] && [ -n "${DEVLET_AGENT_EVENT_TOKEN:-}" ]; then
+    curl -sS -m 5 -o /dev/null \
+      -H 'content-type: application/json' \
+      -d "{\"agentId\":\"$DEVLET_AGENT_ID\",\"token\":\"$DEVLET_AGENT_EVENT_TOKEN\",\"event\":\"$1\",\"at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \
+      "$DEVLET_SERVER_URL/api/agent-event" >/dev/null 2>&1 &
+  fi
+}
+
+# Helper: run the mission command with lifecycle reporting (started → completed/failed).
+execute_mission() {
+  report_mission_event mission_started
+  set +e
+  "$@"
+  local rc=$?
+  set -e
+  if [ "$rc" -eq 0 ]; then
+    report_mission_event mission_completed
+  else
+    report_mission_event mission_failed
+  fi
+  return "$rc"
+}
+
 # ─── Agent-type exec-time setup ──────────────────────────────────────────────
 # devlet-coding-init (sourced above) handled common tool pre-configuration.
 # Here we only resolve the variables the exec phase needs (CODEX_* / OPENCODE_MODEL)
@@ -100,7 +127,7 @@ esac
 case "$AGENT_TYPE" in
   claude-code)
     if [ -n "$MISSION" ]; then
-      claude --dangerously-skip-permissions -p "$MISSION"
+      execute_mission claude --dangerously-skip-permissions -p "$MISSION"
       keep_alive_if_persistent
     elif [ "$PERSISTENT" = "true" ]; then
       exec tail -f /dev/null
@@ -120,7 +147,7 @@ case "$AGENT_TYPE" in
     [ -n "$CODEX_BASE_URL" ] && [ -z "$_codex_kind" ] && CODEX_CONF+=(-c "openai_base_url=\"${CODEX_BASE_URL}\"")
 
     if [ -n "$MISSION" ]; then
-      codex exec "${CODEX_CONF[@]}" --dangerously-bypass-approvals-and-sandbox "$MISSION"
+      execute_mission codex exec "${CODEX_CONF[@]}" --dangerously-bypass-approvals-and-sandbox "$MISSION"
       keep_alive_if_persistent
     elif [ "$PERSISTENT" = "true" ]; then
       exec tail -f /dev/null
@@ -131,7 +158,7 @@ case "$AGENT_TYPE" in
 
   opencode)
     if [ -n "$MISSION" ]; then
-      opencode run --model "$OPENCODE_MODEL" --dangerously-skip-permissions "$MISSION"
+      execute_mission opencode run --model "$OPENCODE_MODEL" --dangerously-skip-permissions "$MISSION"
       keep_alive_if_persistent
     elif [ "$PERSISTENT" = "true" ]; then
       exec tail -f /dev/null
@@ -142,7 +169,7 @@ case "$AGENT_TYPE" in
 
   pi)
     if [ -n "$MISSION" ]; then
-      pi -p "$MISSION"
+      execute_mission pi -p "$MISSION"
       keep_alive_if_persistent
     elif [ "$PERSISTENT" = "true" ]; then
       exec tail -f /dev/null
@@ -153,7 +180,7 @@ case "$AGENT_TYPE" in
 
   gemini)
     if [ -n "$MISSION" ]; then
-      gemini --yolo -p "$MISSION"
+      execute_mission gemini --yolo -p "$MISSION"
       keep_alive_if_persistent
     elif [ "$PERSISTENT" = "true" ]; then
       exec tail -f /dev/null
