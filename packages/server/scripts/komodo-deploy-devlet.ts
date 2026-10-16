@@ -124,3 +124,28 @@ if (toAdd.length > 0) {
 console.log("→ deploying stack (compose pull + up)...");
 const update = (await komodo.execute("DeployStack", { stack: STACK })) as Record<string, unknown>;
 console.log(`deploy update: ${update["status"] ?? update["_id"] ?? "triggered"}`);
+
+// DeployStack returns before Komodo finishes the compose pull+up. Wait for the
+// update to complete so the script doesn't report success on a no-op or a
+// silently failed pull (a skipped CI image build surfaces here as "image is up
+// to date" — the container keeps its old uptime).
+if (!dryRun) {
+  const startedAt = Date.now();
+  const deadline = startedAt + 10 * 60 * 1000;
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 5_000));
+    const { updates } = (await komodo.read("ListUpdates", { target: { type: "Stack", id: STACK } })) as {
+      updates: Array<{ operation: string; start_ts: number; status: string; success: boolean }>;
+    };
+    const ours = updates
+      .filter((u) => u.operation === "DeployStack" && u.start_ts >= startedAt - 5_000)
+      .sort((a, b) => b.start_ts - a.start_ts)[0];
+    if (!ours) continue;
+    if (ours.status === "Complete") {
+      if (!ours.success) throw new Error("DeployStack update completed with success=false");
+      console.log(`deploy update: Complete (took ${Math.round((Date.now() - startedAt) / 1000)}s)`);
+      break;
+    }
+    if (Date.now() > deadline) throw new Error(`DeployStack update still ${ours.status} after 10 minutes`);
+  }
+}
