@@ -1,3 +1,4 @@
+import { normalizeArchitecture, parseNvidiaInventory } from "./hardware.js";
 import { Types } from "komodo_client";
 import type { KomodoServer, KomodoServerState, KomodoStatus } from "@devlet/shared";
 import { getKomodoClient, type Komodo } from "./komodo-client.js";
@@ -17,7 +18,7 @@ import { config as appConfig } from "../config.js";
 const GPU_TTL_MS = 5 * 60 * 1000;
 const GPU_PROBE_TIMEOUT_MS = 45_000; // first run on a GPU host may pull debian:12-slim
 
-type GpuInfo = { gpuAvailable: boolean; gpuModel?: string };
+type GpuInfo = { gpuAvailable: boolean; gpuModel?: string; gpuCount?: number };
 type GpuCacheEntry = GpuInfo & { ts: number };
 
 const gpuCache = new Map<string, GpuCacheEntry>();
@@ -114,14 +115,13 @@ async function detectGpu(komodo: Komodo, serverName: string): Promise<GpuInfo> {
     return { gpuAvailable: false };
   }
   // First line looks like: "GPU 0: NVIDIA GeForce RTX 4080 (UUID: GPU-...)"
-  const m = out.match(/GPU \d+:\s*(.+?)\s*\(UUID/m);
-  return { gpuAvailable: true, gpuModel: m?.[1] };
+  return { gpuAvailable: true, ...parseNvidiaInventory(out) };
 }
 
 async function getGpuForServer(komodo: Komodo, serverName: string): Promise<GpuInfo> {
   const cached = gpuCache.get(serverName);
   if (cached && Date.now() - cached.ts < GPU_TTL_MS) {
-    return { gpuAvailable: cached.gpuAvailable, gpuModel: cached.gpuModel };
+    return { gpuAvailable: cached.gpuAvailable, gpuModel: cached.gpuModel, gpuCount: cached.gpuCount };
   }
   const inFlight = gpuInFlight.get(serverName);
   if (inFlight) return inFlight;
@@ -166,7 +166,10 @@ export async function probeKomodo(): Promise<KomodoStatus> {
       servers.map(async (s) => {
         const state = normalizeState(s.info?.state);
         const online = state === "ok";
-        const gpu = online ? await getGpuForServer(komodo, s.name) : undefined;
+        const [gpu, system] = await Promise.all([
+          online ? getGpuForServer(komodo, s.name) : undefined,
+          online ? komodo.read("GetSystemInformation", { server: s.id }).catch(() => undefined) : undefined,
+        ]);
         // Preference: explicit KOMODO_SERVER_HOSTS mapping, then the address Komodo
         // has for the server, then the LAN address detected on the server itself, then a
         // dotted server name (likely an FQDN), and only last the public IP (a shared WAN
@@ -185,10 +188,12 @@ export async function probeKomodo(): Promise<KomodoStatus> {
           id: s.id,
           name: s.name,
           state,
+          architecture: normalizeArchitecture(system?.cpu_arch),
           ...(host ? { host } : {}),
           ...(gpu
             ? {
                 gpuAvailable: gpu.gpuAvailable,
+                ...(gpu.gpuCount !== undefined ? { gpuCount: gpu.gpuCount } : {}),
                 ...(gpu.gpuModel ? { gpuModel: gpu.gpuModel } : {}),
               }
             : {}),

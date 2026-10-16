@@ -18,6 +18,7 @@ export interface DockerStatus {
   containers: { running: number; stopped: number; total: number };
   /** Whether the Docker host has GPU runtime support (nvidia-container-runtime) */
   gpuAvailable?: boolean;
+  gpuCount?: number;
   architecture?: PlatformArchitecture;
   error?: string;
 }
@@ -31,6 +32,7 @@ export interface PortainerEndpoint {
   status: number;
   /** Whether this endpoint has hosts with GPU support */
   gpuAvailable?: boolean;
+  gpuCount?: number;
   /** Excluded from scheduling by configuration */
   excluded?: boolean;
   architecture?: PlatformArchitecture;
@@ -110,6 +112,7 @@ export interface KomodoServer {
   state: KomodoServerState;
   /** Whether this server has GPU support (detected via nvidia-smi) */
   gpuAvailable?: boolean;
+  gpuCount?: number;
   /** Detected GPU model, e.g. "NVIDIA GeForce RTX 4080" */
   gpuModel?: string;
   /** Excluded from scheduling by configuration */

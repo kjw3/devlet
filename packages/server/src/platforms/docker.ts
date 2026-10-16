@@ -1,4 +1,5 @@
 import Docker from "dockerode";
+import { dockerGpuCount } from "./hardware.js";
 import fs from "fs";
 import net from "net";
 import type { AgentConfig, AgentType, DockerImage, DockerStatus } from "@devlet/shared";
@@ -163,6 +164,7 @@ export async function probeDocker(): Promise<DockerStatus> {
       version: versionInfo.Version,
       containers: { running, stopped, total },
       gpuAvailable: Boolean(info.Runtimes?.nvidia),
+      gpuCount: dockerGpuCount(info),
       architecture: normalizeArchitecture(info.Architecture),
       coreCount: info.NCPU,
       totalMemoryMb: Math.floor(info.MemTotal / 1024 / 1024),

@@ -1,4 +1,5 @@
 import type { DockerStatus, KomodoStatus, PortainerStatus, ProxmoxStatus } from "@devlet/shared";
+import { HostHardware } from "./HostHardware.js";
 import { trpc } from "../trpc.js";
 
 function ConnIcon({ ok, loading }: { ok: boolean; loading?: boolean }) {
@@ -6,11 +7,6 @@ function ConnIcon({ ok, loading }: { ok: boolean; loading?: boolean }) {
   return (
     <span className={`status-dot ${ok ? "bg-status-running" : "bg-status-error animate-pulse"}`} />
   );
-}
-
-function ArchBadge({ arch }: { arch: "amd64" | "arm64" | "unknown" | undefined }) {
-  if (!arch || arch === "unknown") return null;
-  return <span className="text-[9px] text-gray-500 uppercase">{arch}</span>;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -33,10 +29,7 @@ function DockerPanel({ status, loading }: { status?: DockerStatus; loading: bool
           </span>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          <ArchBadge arch={status?.architecture} />
-          {status?.gpuAvailable && (
-            <span className="text-[9px] text-accent-purple">GPU</span>
-          )}
+          <HostHardware architecture={status?.architecture} gpuCount={status?.gpuCount} gpuAvailable={status?.gpuAvailable} />
           {!loading && (
             <span className={`label ${status?.connected ? "text-status-running" : "text-status-error"}`}>
               {status?.connected
@@ -82,10 +75,7 @@ function PortainerPanel({ status, loading }: { status?: PortainerStatus; loading
                 {ep.name}
               </span>
               <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
-                <ArchBadge arch={ep.architecture} />
-                {ep.gpuAvailable && (
-                  <span className="text-[9px] text-accent-purple">GPU</span>
-                )}
+                <HostHardware architecture={ep.architecture} gpuCount={ep.gpuCount} gpuAvailable={ep.gpuAvailable} />
                 <button
                   className="hidden group-hover:inline label text-[9px] text-gray-500 hover:text-gray-300 transition-colors"
                   disabled={toggleExcluded.isPending}
@@ -137,10 +127,7 @@ function ProxmoxPanel({ status, loading }: { status?: ProxmoxStatus; loading: bo
                 {node.name}
               </span>
               <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
-                <ArchBadge arch={node.architecture} />
-                {(node.gpuCount ?? 0) > 0 && (
-                  <span className="text-[9px] text-accent-purple">{node.gpuCount}G</span>
-                )}
+                <HostHardware architecture={node.architecture} gpuCount={node.gpuCount} />
                 <button
                   className="hidden group-hover:inline label text-[9px] text-gray-500 hover:text-gray-300 transition-colors"
                   disabled={toggleExcluded.isPending}
@@ -189,10 +176,7 @@ function KomodoPanel({ status, loading }: { status?: KomodoStatus; loading: bool
                 {server.name}
               </span>
               <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
-                <ArchBadge arch={server.architecture} />
-                {server.gpuAvailable && (
-                  <span className="text-[9px] text-accent-purple">GPU</span>
-                )}
+                <HostHardware architecture={server.architecture} gpuCount={server.gpuCount} gpuAvailable={server.gpuAvailable} />
                 <button
                   className="hidden group-hover:inline label text-[9px] text-gray-500 hover:text-gray-300 transition-colors"
                   disabled={toggleExcluded.isPending}
@@ -232,7 +216,7 @@ export function PlatformSidebar() {
   );
 
   return (
-    <aside className="w-52 flex-shrink-0 border-l border-surface-border bg-surface p-4 overflow-y-auto">
+    <aside className="w-64 flex-shrink-0 border-l border-surface-border bg-surface p-4 overflow-y-auto">
       <div className="label mb-4 text-gray-600">platforms</div>
       {docker?.configured !== false && (
         <DockerPanel loading={dockerLoading} {...(docker ? { status: docker } : {})} />

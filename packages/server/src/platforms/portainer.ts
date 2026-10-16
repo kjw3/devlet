@@ -1,3 +1,4 @@
+import { dockerGpuCount } from "./hardware.js";
 import type { PortainerStatus } from "@devlet/shared";
 import { config } from "../config.js";
 import { loadEffectivePlatformExclusions } from "./exclusions.js";
@@ -12,6 +13,7 @@ interface PortainerApiEndpoint {
   URL: string;
   Type: number;
   Status: number;
+  Gpus?: Array<{ uuid?: string; name?: string }>;
   Snapshots?: Array<{
     RunningContainerCount?: number;
     TotalMemory?: number;  // bytes
@@ -21,6 +23,7 @@ interface PortainerApiEndpoint {
         Runtimes?: Record<string, unknown>;
         Architecture?: string;
         NCPU?: number;
+        GenericResources?: Array<{ NamedResourceSpec?: { Kind?: string; Value?: string } }>;
       };
     };
   }>;
@@ -62,6 +65,19 @@ export async function probePortainer(): Promise<PortainerStatus> {
     const statusData = (await statusRes.json()) as PortainerApiStatus;
     const endpoints = (await epRes.json()) as PortainerApiEndpoint[];
 
+    // Some Portainer versions omit architecture from snapshots. Query the
+    // endpoint's Docker info rather than silently hiding the host architecture.
+    await Promise.all(endpoints.filter(ep => ep.Status === 1).map(async ep => {
+      if (ep.Snapshots?.[0]?.DockerSnapshotRaw?.Info?.Architecture) return;
+      try {
+        const res = await fetch(`${url}/api/endpoints/${ep.Id}/docker/info`, { headers, signal: AbortSignal.timeout(5_000) });
+        if (!res.ok) return;
+        const info = await res.json() as NonNullable<NonNullable<NonNullable<PortainerApiEndpoint["Snapshots"]>[number]["DockerSnapshotRaw"]>["Info"]>;
+        ep.Snapshots ??= [{}];
+        ep.Snapshots[0] ??= {};
+        ep.Snapshots[0].DockerSnapshotRaw = { Info: info };
+      } catch { /* Preserve snapshot telemetry if endpoint is unreachable. */ }
+    }));
     const exclusions = await loadEffectivePlatformExclusions();
 
     return {
@@ -81,6 +97,7 @@ export async function probePortainer(): Promise<PortainerStatus> {
         ...(ep.Snapshots?.[0]?.DockerSnapshotRaw?.Info?.Runtimes?.["nvidia"] !== undefined
           ? { gpuAvailable: true }
           : {}),
+        gpuCount: ep.Gpus?.length ? ep.Gpus.length : dockerGpuCount(ep.Snapshots?.[0]?.DockerSnapshotRaw?.Info ?? {}),
         architecture: normalizeArchitecture(
           ep.Snapshots?.[0]?.DockerSnapshotRaw?.Info?.Architecture
         ),
