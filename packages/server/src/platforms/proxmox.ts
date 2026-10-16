@@ -9,6 +9,7 @@ import {
   listStorageContent,
   pveGet,
   pickGpuPciId,
+  rootAuthHeaders,
 } from "./proxmox-client.js";
 
 interface ProxmoxApiVersion {
@@ -268,6 +269,17 @@ export async function validateProxmoxPlacement(
           message:
             `Node "${node}" has no free GPU for passthrough ` +
             "(all detected GPUs are already assigned to other VMs, or none is present)",
+        };
+      }
+      // PVE hard-restricts hostpci* config to root@pam — no ACL grant on the
+      // regular token can bypass it. The config step needs the dedicated root
+      // token, so fail the hire (not the post-clone provisioning) without one.
+      if (!rootAuthHeaders()) {
+        return {
+          ok: false,
+          message:
+            "GPU passthrough requires a root@pam API token (PVE restricts hostpci to root) — " +
+            "set PROXMOX_ROOT_USER, PROXMOX_ROOT_TOKEN_ID and PROXMOX_ROOT_TOKEN_SECRET",
         };
       }
     }
