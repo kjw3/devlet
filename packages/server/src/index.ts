@@ -5,7 +5,12 @@ import cors from "@fastify/cors";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "./routers/index.js";
-import { getAgentRunning, getAgentLogs, stopAgent, provisionAgent } from "./platforms/dispatch.js";
+import { getAgentRunning, getAgentLogs, stopAgent, provisionAgent, removeAgent } from "./platforms/dispatch.js";
+import {
+  listOrphanedKomodoDeployments,
+  getOrphanedKomodoDeploymentLog,
+  removeOrphanedKomodoDeployment,
+} from "./platforms/komodo-deploy.js";
 import { probePortainer } from "./platforms/portainer.js";
 import { probeKomodo } from "./platforms/komodo.js";
 import { probeProxmox } from "./platforms/proxmox.js";
@@ -328,6 +333,11 @@ async function syncAgentStatuses(): Promise<void> {
                 const logs = await getAgentLogs(state.platformRef, []);
                 if (logs.length) state.logs.push(...logs);
                 await stopAgent(state.platformRef);
+              } else if (state.platformRef !== "pending") {
+                // Non-persistent agent exited: tear down the now-dead container /
+                // deployment so it doesn't linger as an orphan (e.g. an exited
+                // Komodo deployment). Proxmox is handled above (disk retained).
+                await removeAgent(state.platformRef).catch(() => {});
               }
               state.status = "terminated";
               state.logs.push("[devlet] container exited — marked terminated");
@@ -389,3 +399,50 @@ async function syncAgentStatuses(): Promise<void> {
 }
 
 setInterval(syncAgentStatuses, 15_000);
+
+// ─── Background: reconcile orphaned Komodo deployments ───────────────────────
+// Tears down `devlet-agent-*` deployments that no agent state references — the
+// leak that leaves self-restarting containers behind when a terminate/fire/restart
+// cleanup doesn't run to completion, or when the creating server lost its state.
+//
+// SAFETY: this is OFF by default and gated behind DEVLET_RECONCILE_KOMODO_ORPHANS=1.
+// Multiple Devlet servers can share one Komodo instance (e.g. a local dev server
+// and a production server). A server must only reconcile against the agents it
+// owns; because the orphan scan is scoped to *this* server's state, only the
+// server whose state is authoritative for a given deployment should run it. Enable
+// it on exactly one server (the one that owns the Komodo agents you want cleaned).
+//
+// Conservative even when enabled: only touches deployments matching the agent
+// naming convention (`devlet-agent-*`) that are absent from every agent's derived
+// deployment name and platformRef.
+// Runs on a slow interval (well after the 15s status sync) so a freshly-hired
+// agent's async provision has long since persisted its platformRef before it could
+// be mistaken for an orphan.
+const reconcileOrphansEnabled = process.env["DEVLET_RECONCILE_KOMODO_ORPHANS"] === "1";
+let reconcilingOrphans = false;
+async function reconcileOrphanedKomodo(): Promise<void> {
+  if (!reconcileOrphansEnabled) return;
+  if (reconcilingOrphans) return;
+  reconcilingOrphans = true;
+  try {
+    const orphans = await listOrphanedKomodoDeployments();
+    for (const name of orphans) {
+      const log = await getOrphanedKomodoDeploymentLog(name);
+      const tail = log.slice(-5).join(" | ");
+      console.warn(
+        `[reconcile] orphaned Komodo deployment ${name} — no agent state references it. ` +
+          `Tearing down.${tail ? ` Last logs: ${tail}` : ""}`
+      );
+      await removeOrphanedKomodoDeployment(name).catch((err: unknown) => {
+        console.error(`[reconcile] failed to remove ${name}:`, err instanceof Error ? err.message : err);
+      });
+    }
+  } catch {
+    // don't crash the server on reconciliation errors
+  } finally {
+    reconcilingOrphans = false;
+  }
+}
+
+void reconcileOrphanedKomodo();
+setInterval(reconcileOrphanedKomodo, 5 * 60_000);

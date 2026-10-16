@@ -240,3 +240,83 @@ export async function getKomodoContainerRunning(
     return null;
   }
 }
+
+// ─── Orphan reconciliation ────────────────────────────────────────────────────
+// A deployment is "orphaned" when its name matches the `devlet-agent-*` pattern
+// but no agent state references it — either by config.id or by platformRef. This
+// happens when an agent is terminated/failed without its Komodo cleanup running to
+// completion, or when the server that created it lost its state. The reconciler
+// tears these down so they don't linger as unmanaged, self-restarting containers.
+
+/**
+ * Pure orphan filter: given Komodo deployment names and the agent states a server
+ * owns, return the deployment names that match the `devlet-agent-*` convention but
+ * are referenced by no agent (by config.id or by platformRef). Exported for tests.
+ */
+export function filterOrphanedKomodoDeployments(
+  deploymentNames: string[],
+  states: { config: { id: string }; platformRef: string }[]
+): string[] {
+  const known = new Set<string>();
+  for (const s of states) {
+    // The deployment an agent uses is `devlet-${config.id}` (komodoDeploymentName).
+    // Add it directly so an agent still provisioning (platformRef not yet persisted
+    // but its deployment already created) is never mistaken for an orphan.
+    known.add(`devlet-${s.config.id}`);
+    if (s.platformRef.startsWith("komodo:")) {
+      const name = s.platformRef.split(":")[2];
+      if (name) known.add(name);
+    }
+  }
+  return deploymentNames.filter((name) => name.startsWith("devlet-agent-") && !known.has(name));
+}
+
+/**
+ * List `devlet-agent-*` deployments that have no matching agent state.
+ * Returns `[]` (rather than throwing) when Komodo is unreachable, so callers can
+ * treat "not configured / offline" as "nothing to reconcile".
+ */
+export async function listOrphanedKomodoDeployments(): Promise<string[]> {
+  const komodo = getKomodoClient();
+  if (!komodo) return [];
+
+  const states = await listAgentStates().catch(() => []);
+  try {
+    const list = await komodo.read("ListDeployments", { query: {} });
+    return filterOrphanedKomodoDeployments(
+      list.map((d) => d.name),
+      states
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Best-effort log capture for an orphan before it is destroyed. */
+export async function getOrphanedKomodoDeploymentLog(deploymentName: string): Promise<string[]> {
+  try {
+    return await getKomodoContainerLogs("", deploymentName);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Tear down a single orphaned deployment: stop, destroy the container, delete the
+ * Deployment resource, and drop any stale tailnet node. Best-effort throughout —
+ * an already-gone deployment is a success.
+ */
+export async function removeOrphanedKomodoDeployment(deploymentName: string): Promise<void> {
+  const komodo = client();
+  await komodo.execute_and_poll("StopDeployment", { deployment: deploymentName }).catch(() => {});
+  await removeKomodoContainer("", deploymentName);
+  // Deployment names are `devlet-agent-<id>`; the tailnet hostname is `devlet-<id>`.
+  const agentId = deploymentName.replace(/^devlet-/, "");
+  try {
+    const { removeDevicesByHostname } = await import("../tailscale/client.js");
+    const { config } = await import("../config.js");
+    await removeDevicesByHostname(`devlet-${agentId}`, config.tailscale.tag);
+  } catch {
+    // Tailscale not configured / offline — nothing to clean up.
+  }
+}
