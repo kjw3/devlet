@@ -5,7 +5,7 @@ import cors from "@fastify/cors";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "./routers/index.js";
-import { getAgentRunning, provisionAgent } from "./platforms/dispatch.js";
+import { getAgentRunning, getAgentLogs, stopAgent, provisionAgent } from "./platforms/dispatch.js";
 import { probePortainer } from "./platforms/portainer.js";
 import { probeKomodo } from "./platforms/komodo.js";
 import { probeProxmox } from "./platforms/proxmox.js";
@@ -78,6 +78,10 @@ async function resolveAgentProxyRequest(requestUrl: string): Promise<ProxyResolu
 
   if (!validateAgentProxyToken(agentId, surface, targetUrl, proxyToken)) {
     return { ok: false, statusCode: 401, message: "Invalid proxy token" };
+  }
+
+  if (state.status === "terminated") {
+    return { ok: false, statusCode: 410, message: "Agent has stopped. SSH and terminal are only available while it is running." };
   }
 
   const suffix = parts.slice(4).join("/");
@@ -255,7 +259,10 @@ await bootstrapSshKeysFromEnv();
 void startServerTailnetNode();
 
 // ─── Background: sync agent status when containers exit ───────────────────────
+let syncingAgentStatuses = false;
 async function syncAgentStatuses(): Promise<void> {
+  if (syncingAgentStatuses) return;
+  syncingAgentStatuses = true;
   try {
     const states = await listAgentStates();
     const [portainerStatus, komodoStatus] = await Promise.all([
@@ -280,6 +287,13 @@ async function syncAgentStatuses(): Promise<void> {
                 return;
               }
 
+              if (state.config.platform.type === "proxmox") {
+                // Keep task output before powering down the guest. Retain its
+                // disk/workspace for inspection; explicit delete/fire removes it.
+                const logs = await getAgentLogs(state.platformRef, []);
+                if (logs.length) state.logs.push(...logs);
+                await stopAgent(state.platformRef);
+              }
               state.status = "terminated";
               state.logs.push("[devlet] container exited — marked terminated");
               await saveAgentState(state);
@@ -334,6 +348,8 @@ async function syncAgentStatuses(): Promise<void> {
     );
   } catch {
     // don't crash the server on state read errors
+  } finally {
+    syncingAgentStatuses = false;
   }
 }
 

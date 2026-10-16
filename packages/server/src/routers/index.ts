@@ -153,6 +153,11 @@ async function sanitizeAgentState(state: AgentState): Promise<AgentState> {
       .filter((entry): entry is [string, string] => entry[1] !== null)
   );
 
+  if (state.status !== "running" && state.status !== "idle") {
+    const { access: _access, ...rest } = state;
+    return { ...rest, config: { ...state.config, env } };
+  }
+
   let access: AgentState["access"];
   const terminalPort = state.config.env["DEVLET_TERMINAL_PORT"];
   const sshPort = state.config.env["DEVLET_SSH_PORT"];
@@ -513,6 +518,7 @@ async function chooseRecoveryPlatform(
       type: state.config.type,
       resources: state.config.resources,
       persistent: state.config.persistent,
+      onComplete: state.config.mission.onComplete,
       ...(state.config.gpu ? { gpu: state.config.gpu } : {}),
     },
     {
@@ -617,6 +623,7 @@ export const appRouter = t.router({
                 type: input.type,
                 resources: normalizeResources(input.resources),
                 persistent: input.persistent,
+                onComplete: input.mission.onComplete,
                 ...(input.gpu ? { gpu: normalizeGpu(input.gpu) } : {}),
               },
               schedulerContext
@@ -637,6 +644,7 @@ export const appRouter = t.router({
         if (platform.type === "proxmox") {
           const placementCheck = await validateProxmoxPlacement(platform, proxmoxStatus, {
             gpuRequired: Boolean(input.gpu?.required),
+            singleTask: input.mission.onComplete === "terminate",
           });
           if (!placementCheck.ok) {
             throw new TRPCError({

@@ -1,5 +1,6 @@
 import type { AgentConfig } from "@devlet/shared";
 import { randomBytes } from "node:crypto";
+import { inspectGuestRuntime } from "./proxmox-runtime.js";
 import { config } from "../config.js";
 import { AGENT_IMAGE } from "./docker.js";
 import { buildContainerEnv } from "./env.js";
@@ -608,12 +609,17 @@ export async function createProxmoxGuest(agentConfig: AgentConfig): Promise<stri
   if (allocation.existingGuest) {
     const { node, vmType: existingType, vmid: existingId } = allocation.existingGuest;
     const status = await getGuestStatus(node, existingType, existingId);
-    if (status?.status === "running") {
-      return `proxmox:${node}:${existingType}:${existingId}`;
-    }
-    await startGuest(node, existingType, existingId);
+    if (status?.status !== "running") await startGuest(node, existingType, existingId);
     const ip = await waitGuestIp(node, existingType, existingId);
-    await bootstrapGuest(agentConfig, ip);
+    // A powered-on guest can contain a stopped agent. Restart the existing
+    // container (preserving its workspace), not just the enclosing guest.
+    const runtime = await inspectGuestRuntime(ip);
+    if (runtime === "missing") await bootstrapGuest(agentConfig, ip);
+    else if (runtime === false) {
+      await runGuestScript(ip, "docker start devlet-agent", { timeoutMs: 30_000 });
+    } else if (runtime === null) {
+      throw new Error(`Cannot determine agent container state on guest ${ip}; retry recovery later`);
+    }
     return `proxmox:${node}:${existingType}:${existingId}`;
   }
 
@@ -662,7 +668,7 @@ export async function removeProxmoxGuest(
   await destroyGuest(node, vmType, vmid);
 }
 
-/** true (running) / false (stopped or destroyed) / null (cannot tell — API down). */
+/** Agent runtime state, not just guest power: false on exit, null on probe failure. */
 export async function getProxmoxGuestRunning(
   node: string,
   vmType: "lxc" | "qemu",
@@ -672,12 +678,17 @@ export async function getProxmoxGuestRunning(
     const status = await pveGet<{ status: string }>(
       `/nodes/${encodeURIComponent(node)}/${vmType}/${vmid}/status/current`
     );
-    return status.status === "running";
+    if (status.status === "stopped") return false;
+    if (status.status !== "running") return null;
+    const ip = await resolveGuestIp(node, vmType, vmid);
+    if (!ip) return null;
+    const runtime = await inspectGuestRuntime(ip);
+    return runtime === "missing" ? false : runtime;
   } catch (err) {
     // Guest gone (destroyed out-of-band): report false so the reconciler can
     // reprovision persistent agents. API-level failures stay null.
     if (err instanceof ProxmoxApiError) {
-      if (err.status === 404 || /no such (vm|container)/i.test(err.message)) return false;
+      if (err.status === 404 || /no such (vm|container)|configuration file .* does not exist/i.test(err.message)) return false;
     }
     return null;
   }

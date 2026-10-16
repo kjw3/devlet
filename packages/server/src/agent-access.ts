@@ -351,6 +351,10 @@ export async function resolveAgentProxyRequestFromHost(
     return { ok: false, statusCode: 401, message: "Invalid proxy token" };
   }
 
+  if (state.status === "terminated") {
+    return { ok: false, statusCode: 410, message: "Agent has stopped. SSH and terminal are only available while it is running." };
+  }
+
   const parsed = new URL(requestUrl, "http://localhost:3001");
   const query = parsed.searchParams.toString();
 

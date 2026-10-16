@@ -541,7 +541,7 @@ export function AgentDetail() {
           {/* Connections */}
           {agent.access
             ? <ConnectionsPanel agentId={config.id} access={agent.access} />
-            : <div className="card p-4"><div className="label mb-1">connections</div><p className="text-[12px] text-gray-600 italic">no connections available</p></div>
+            : <div className="card p-4"><div className="label mb-1">connections</div><p className="text-[12px] text-gray-600 italic">{status === "terminated" ? "Agent has stopped — SSH and terminal are only available while it is running. Task output is available in the logs below." : "no connections available"}</p></div>
           }
         </div>
 

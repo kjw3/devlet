@@ -184,15 +184,10 @@ export {
 // failures happen synchronously with a clear message instead of asynchronously
 // in the provisioner.
 
-interface PlacementCheckNode {
-  name: string;
-  status: string;
-}
-
 export async function validateProxmoxPlacement(
   target: { type: string; node?: string; vmType?: string },
   status: ProxmoxStatus,
-  opts?: { gpuRequired?: boolean }
+  opts?: { gpuRequired?: boolean; singleTask?: boolean }
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   if (target.type !== "proxmox") return { ok: true };
 
@@ -205,7 +200,7 @@ export async function validateProxmoxPlacement(
     return { ok: false, message: "No Proxmox node selected and PROXMOX_NODE is not set" };
   }
 
-  const nodeInfo = (status.nodes as PlacementCheckNode[]).find((n) => n.name === node);
+  const nodeInfo = status.nodes.find((n) => n.name === node);
   if (!nodeInfo) {
     return { ok: false, message: `Proxmox node "${node}" does not exist in the cluster` };
   }
@@ -213,7 +208,14 @@ export async function validateProxmoxPlacement(
     return { ok: false, message: `Proxmox node "${node}" is ${nodeInfo.status}` };
   }
 
+  if (nodeInfo.excluded) return { ok: false, message: `Proxmox node "${node}" is excluded` };
   const vmType = target.vmType === "qemu" ? "qemu" : "lxc";
+  if (opts?.singleTask && vmType !== "lxc") {
+    return { ok: false, message: "Single-task Proxmox agents must use LXC" };
+  }
+  if (opts?.gpuRequired && vmType !== "qemu") {
+    return { ok: false, message: "Proxmox GPU passthrough requires a VM, not LXC" };
+  }
   if (vmType === "lxc") {
     if (!config.proxmox.lxcTemplate) {
       return {

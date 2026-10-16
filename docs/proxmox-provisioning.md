@@ -95,8 +95,11 @@ otherwise. nanoclaw is never offered when no QEMU/LXC template is configured.
   `proxmox:{node}:{vmType}:{vmId}`. Idempotent: re-provision reuses/starts the existing
   guest; failed creations clean up.
 - **R4 (lifecycle).** `stopAgent` = guest shutdown (API, force-stop after grace);
-  `removeAgent` = destroy + purge; `getAgentRunning` from guest status; reconciler
-  restarts persistent guests and marks dead ones error — no more silent skips.
+  `removeAgent` = destroy + purge; `getAgentRunning` checks guest power **and the
+  inner Docker container**. Probe failures return unknown, not exited. The reconciler
+  restarts persistent containers without replacing their workspace; finished
+  non-persistent tasks have logs saved, guests powered down, and state marked terminated.
+  Guest disks remain until explicit fire/delete.
 - **R5 (logs).** `docker logs --tail N devlet-agent` over SSH, falling back to stored
   state logs when the guest is unreachable; provisioning task output (UPID log) surfaced
   on failure.
@@ -162,9 +165,14 @@ otherwise. nanoclaw is never offered when no QEMU/LXC template is configured.
 
 ### P5 — Lifecycle, status, logs (code complete; live-verified)
 - [x] `stopAgent` (graceful shutdown, force-stop fallback), `removeAgent` (destroy +
-      purge), `getAgentRunning` (guest status) wired into `dispatch.ts` (R4).
+      purge), `getAgentRunning` (guest power + inner Docker runtime) wired into `dispatch.ts` (R4).
 - [x] Reconciler: `running === false` restarts persistent guests (reuse path starts the
-      existing guest); unreachable API marks the agent error instead of skipping (R4).
+      existing guest/container); unreachable API marks the agent error instead of skipping (R4).
+- Single-task hires (`mission.onComplete=terminate`) use LXC only, enforced at hire
+  validation. Long-running hires default to LXC, with a QEMU dropdown override;
+  GPU passthrough requires QEMU. Excluded targets are hidden from the dropdowns.
+- Finished tasks no longer advertise SSH/terminal links; saved proxy URLs return
+  HTTP 410 once termination has been reconciled (15-second polling interval).
 - [x] `getAgentLogs` via SSH `docker logs`, falling back to stored state logs (R5);
       provisioning failures surface the PVE task log tail in the agent's error.
 - [x] Verify: fire removes the guest in PVE (✓ verified live; no orphans left, failed

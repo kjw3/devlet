@@ -47,11 +47,11 @@ interface Candidate {
   note?: string;
 }
 
-function sameTarget(a: PlatformTarget | undefined, b: PlatformTarget): boolean {
+export function sameTarget(a: PlatformTarget | undefined, b: PlatformTarget): boolean {
   if (!a || a.type !== b.type) return false;
   if (a.type === "portainer" && b.type === "portainer") return a.endpointId === b.endpointId;
   if (a.type === "komodo" && b.type === "komodo") return a.serverId === b.serverId;
-  if (a.type === "proxmox" && b.type === "proxmox") return a.node === b.node;
+  if (a.type === "proxmox" && b.type === "proxmox") return a.node === b.node && a.vmType === b.vmType;
   return true;
 }
 
@@ -62,7 +62,7 @@ interface PlatformGroup {
   candidates: Candidate[];
 }
 
-function listPlatformGroups(ctx: SchedulerContext, reqs: PlacementRequirements): PlatformGroup[] {
+export function listPlatformGroups(ctx: SchedulerContext, reqs: PlacementRequirements, guestType?: "lxc" | "qemu"): PlatformGroup[] {
   const needGpu = reqs.gpu?.required ?? false;
   const fit = (online: boolean, excluded: boolean | undefined, gpu: boolean): string | undefined =>
     !online ? "offline" : excluded ? "excluded" : needGpu && !gpu ? "no GPU" : undefined;
@@ -96,7 +96,7 @@ function listPlatformGroups(ctx: SchedulerContext, reqs: PlacementRequirements):
     groups.push({
       type: "portainer",
       label: PLATFORM_LABELS.portainer,
-      candidates: portainer.endpoints.map((e) =>
+      candidates: portainer.endpoints.filter((e) => !e.excluded).map((e) =>
         make({
           platform: { type: "portainer", endpointId: e.id, endpointName: e.name },
           key: `portainer:${e.id}`,
@@ -110,15 +110,15 @@ function listPlatformGroups(ctx: SchedulerContext, reqs: PlacementRequirements):
 
   const proxmox = ctx.proxmox;
   if (proxmox && proxmox.configured !== false) {
-    const vmType = reqs.gpu?.passthroughMode === "vm" || needGpu ? "qemu" : "lxc";
+    const vmType = reqs.onComplete === "terminate" ? "lxc" : guestType ?? (reqs.gpu?.passthroughMode === "vm" || needGpu ? "qemu" : "lxc");
     groups.push({
       type: "proxmox",
       label: PLATFORM_LABELS.proxmox,
-      candidates: proxmox.nodes.map((n) =>
+      candidates: proxmox.nodes.filter((n) => !n.excluded).map((n) =>
         make({
           platform: { type: "proxmox", node: n.name, vmType },
           key: `proxmox:${n.name}`,
-          name: `${n.name} (${vmType})`,
+          name: n.name,
           gpu: (n.gpuCount ?? 0) > 0,
           reason: fit(proxmox.connected && n.status === "online", n.excluded, (n.gpuCount ?? 0) > 0),
         })
@@ -131,7 +131,7 @@ function listPlatformGroups(ctx: SchedulerContext, reqs: PlacementRequirements):
     groups.push({
       type: "komodo",
       label: PLATFORM_LABELS.komodo,
-      candidates: komodo.servers.map((sv) =>
+      candidates: komodo.servers.filter((sv) => !sv.excluded).map((sv) =>
         make({
           platform: { type: "komodo", serverId: sv.id, serverName: sv.name },
           key: `komodo:${sv.id}`,
@@ -177,7 +177,8 @@ export function PlacementPreview({
 
   const decision: PlacementDecision = scheduleAgent(requirements, schedulerContext);
 
-  const groups = listPlatformGroups(schedulerContext, requirements);
+  const groups = listPlatformGroups(schedulerContext, requirements,
+    override?.type === "proxmox" ? override.vmType : undefined);
 
   // Effective selection: the override when set, otherwise the recommendation.
   const effective = override ?? decision.placement;
@@ -203,7 +204,7 @@ export function PlacementPreview({
 
   /** Changing either dropdown re-decides; landing back on the recommendation clears the override. */
   function pick(candidate: Candidate | undefined) {
-    if (!candidate) return;
+    if (!candidate?.available) return;
     if (sameTarget(decision.placement, candidate.platform)) onPlacement(undefined);
     else onPlacement(candidate.platform);
   }
@@ -292,7 +293,7 @@ export function PlacementPreview({
             }}
           >
             {groups.map((g) => (
-              <option key={g.type} value={g.type}>
+              <option key={g.type} value={g.type} disabled={!g.candidates.some((c) => c.available)}>
                 {g.label} ({g.candidates.length})
               </option>
             ))}
@@ -317,6 +318,28 @@ export function PlacementPreview({
               </option>
             ))}
           </select>
+
+          {effective?.type === "proxmox" && (
+            <>
+              <span className="label flex-shrink-0">guest type</span>
+              <select
+                aria-label="Proxmox guest type"
+                className={SELECT_CLASS}
+                value={effective.vmType}
+                disabled={requirements.onComplete === "terminate" || Boolean(requirements.gpu?.required)}
+                onChange={(e) => {
+                  const platform: PlatformTarget = { ...effective, vmType: e.target.value as "lxc" | "qemu" };
+                  onPlacement(sameTarget(decision.placement, platform) ? undefined : platform);
+                }}
+              >
+                <option value="lxc">LXC (default)</option>
+                {requirements.onComplete !== "terminate" && <option value="qemu">Virtual machine (QEMU)</option>}
+              </select>
+              <span className="text-[10px] text-gray-500">
+                {requirements.onComplete === "terminate" ? "Single tasks use LXC" : requirements.gpu?.required ? "GPU passthrough requires a VM" : ""}
+              </span>
+            </>
+          )}
 
           {isOverridden && (
             <button

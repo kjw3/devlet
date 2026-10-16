@@ -231,7 +231,12 @@ export function HireAgent() {
   const tailscaleStatus = trpc.platforms.tailscale.status.useQuery(undefined, { staleTime: 30_000 });
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => ({
+      ...prev, [key]: value,
+      ...(key === "gpuRequired" && prev.platformOverride?.type === "proxmox"
+        ? { platformOverride: { ...prev.platformOverride, vmType: value ? "qemu" as const : "lxc" as const } }
+        : {}),
+    }));
   }
 
   function selectMode(mode: WizardMode) {
@@ -305,6 +310,7 @@ export function HireAgent() {
               ? AGENT_RESOURCE_DEFAULTS[form.type as AgentType]
               : { cpus: form.cpus, memoryMb: form.memoryMb },
           persistent: form.mode === "single-task" ? false : form.persistent,
+          onComplete: form.mode === "single-task" ? "terminate" as const : "idle" as const,
           ...(form.mode === "long-running" && form.gpuRequired
             ? { gpu: { required: true, memoryMb: form.gpuMemoryMb } }
             : {}),

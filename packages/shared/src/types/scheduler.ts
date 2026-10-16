@@ -14,6 +14,8 @@ export interface PlacementRequirements {
   type: AgentType;
   resources: ResourceLimits;
   persistent: boolean;
+  /** Single-task jobs terminate; independent of long-running restart policy. */
+  onComplete?: "idle" | "terminate" | "report";
   gpu?: GpuRequirements;
 }
 

@@ -369,7 +369,7 @@ function scoreProxmox(
   const platform: PlatformTarget = {
     type: "proxmox",
     node: targetNode?.name ?? "pve-01",
-    vmType: reqs.gpu?.passthroughMode === "vm" || reqs.gpu?.required ? "qemu" : "lxc",
+    vmType: reqs.onComplete === "terminate" ? "lxc" : reqs.gpu?.passthroughMode === "vm" || reqs.gpu?.required ? "qemu" : "lxc",
   };
 
   if (!status.connected) {
@@ -405,6 +405,11 @@ function scoreProxmox(
   let score = 0;
   const reasons: string[] = [];
 
+  if (reqs.onComplete === "terminate" && reqs.gpu?.required) {
+    return { platform, score: 0, available: false, reasons: [],
+      disqualifyReason: "Single-task Proxmox agents use LXC; GPU passthrough requires a VM" };
+  }
+
   // GPU fit (40 pts — VM passthrough is the strongest GPU isolation option)
   if (reqs.gpu?.required && gpuNodes.length > 0) {
     score += 40;
@@ -433,7 +438,7 @@ function scoreProxmox(
   } else {
     // Ephemeral penalty — spinning up a VM for a short job is wasteful
     score -= 20;
-    reasons.push("ephemeral workload — VM startup overhead not justified; use Docker or Portainer");
+    reasons.push("short task — LXC guest bootstrap adds overhead versus an existing Docker host");
   }
 
   // Resource headroom (0–15 pts)
