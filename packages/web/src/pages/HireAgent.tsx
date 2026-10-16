@@ -15,7 +15,6 @@ import {
   diskSizeError,
 } from "@devlet/shared";
 import { PlacementPreview } from "../components/PlacementPreview.js";
-import { useNumberDraft } from "../lib/number-input.js";
 import { DiskControls } from "../components/DiskControls.js";
 import { ResourceControls } from "../components/ResourceControls.js";
 import { trpc, trpcInventory } from "../trpc.js";
@@ -180,7 +179,6 @@ interface FormState {
   memoryMb: number;
   diskGb: number;
   gpuRequired: boolean;
-  gpuMemoryMb: number;
   /** Specific GPUs chosen in the selector; empty = all GPUs of the host. */
   gpuDevices: string[];
   persistent: boolean;
@@ -241,7 +239,6 @@ export function HireAgent() {
     memoryMb: 1024,
     diskGb: 10,
     gpuRequired: false,
-    gpuMemoryMb: 8192,
     gpuDevices: [],
     persistent: false,
     tailnet: true,
@@ -338,7 +335,7 @@ export function HireAgent() {
           persistent: form.mode === "single-task" ? false : form.persistent,
           onComplete: form.mode === "single-task" ? "terminate" as const : "idle" as const,
           ...(form.mode === "long-running" && form.gpuRequired
-            ? { gpu: { required: true, memoryMb: form.gpuMemoryMb, ...(form.gpuDevices.length ? { devices: form.gpuDevices } : {}) } }
+            ? { gpu: { required: true, ...(form.gpuDevices.length ? { devices: form.gpuDevices } : {}) } }
             : {}),
         }
       : null;
@@ -399,7 +396,6 @@ export function HireAgent() {
     : !isStandardMemory(form.memoryMb) || form.memoryMb < minimum.memoryMb
     ? `Choose a standard RAM size of at least ${minimum.memoryMb} MB`
     : resourceCapacityError(form, capacity);
-  const gpuMemoryInput = useNumberDraft(form.gpuMemoryMb, n => update("gpuMemoryMb", n));
   const resourceControls = <><ResourceControls
     cpus={form.cpus} memoryMb={form.memoryMb} minimum={minimum} capacity={capacity}
     onCpu={n => update("cpus", n)} onMemory={n => update("memoryMb", n)} error={resourceError}
@@ -439,7 +435,7 @@ export function HireAgent() {
         },
         resources: requestedResources,
         ...(form.gpuRequired
-          ? { gpu: { required: true, memoryMb: form.gpuMemoryMb, ...(form.gpuDevices.length ? { devices: form.gpuDevices } : {}) } }
+          ? { gpu: { required: true, ...(form.gpuDevices.length ? { devices: form.gpuDevices } : {}) } }
           : {}),
         env: form.tailnet ? {} : { DEVLET_TAILSCALE: "false" },
         persistent: form.persistent,
@@ -770,20 +766,7 @@ export function HireAgent() {
                         </span>
                       </div>
                       {form.gpuRequired && (
-                        <div className="pl-6 space-y-3">
-                          <div>
-                            <label className="text-[11px] text-gray-500 block mb-1">Min GPU memory (MB)</label>
-                            <input
-                              type="number"
-                              min={1024}
-                              max={81920}
-                              step={1024}
-                              value={gpuMemoryInput.value}
-                              onChange={gpuMemoryInput.onChange}
-                              onBlur={gpuMemoryInput.onBlur}
-                              className="w-40 bg-surface border border-surface-border rounded-sm px-3 py-1.5 text-[13px] text-gray-100 focus:outline-none focus:border-accent-cyan/50"
-                            />
-                          </div>
+                        <div className="pl-6">
                           <div>
                             <label className="text-[11px] text-gray-500 block mb-1">GPUs to expose</label>
                             {form.platformOverride ? (

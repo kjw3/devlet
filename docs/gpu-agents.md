@@ -145,7 +145,9 @@ selection fails with `PRECONDITION_FAILED` instead of deploying a broken agent.
 
 ## Limits / follow-ups
 
-- **Scheduler VRAM awareness**: `gpu.memoryMb` is stored but not yet matched
-  against host VRAM.
+- **Scheduler VRAM awareness**: the wizard no longer asks for GPU memory —
+  GPUs can't be fractionally assigned, so a user-settable VRAM figure was dead
+  weight (`gpu.memoryMb` stays in the schema for stored configs; a future
+  scheduler may match model VRAM automatically).
 - **Full CUDA toolkit (nvcc)** is not in the GPU image — agents that need to
   compile CUDA should install `cuda-toolkit` in their workspace.
