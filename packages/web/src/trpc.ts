@@ -2,6 +2,7 @@ import { createTRPCReact } from "@trpc/react-query";
 import { httpBatchLink } from "@trpc/client";
 import { QueryClient } from "@tanstack/react-query";
 import React from "react";
+import { apiFetch, retryQuery } from "./lib/api-transport.js";
 import type { AppRouter } from "@devlet/shared";
 
 export const trpc = createTRPCReact<AppRouter>();
@@ -19,7 +20,9 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5_000,
-      retry: 1,
+      retry: retryQuery,
+      refetchOnWindowFocus: "always",
+      refetchOnReconnect: "always",
     },
   },
 });
@@ -28,6 +31,7 @@ const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
       url: "/trpc",
+      fetch: (input, init) => apiFetch(input, init as RequestInit | undefined),
       headers() {
         const token = getStoredAuthToken();
         return token ? { authorization: `Bearer ${token}` } : {};

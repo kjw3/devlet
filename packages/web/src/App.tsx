@@ -8,6 +8,7 @@ import { AgentConfig } from "./pages/AgentConfig.js";
 import { Settings } from "./pages/Settings.js";
 import { PlatformSidebar } from "./components/PlatformSidebar.js";
 import { DEVLET_AUTH_STORAGE_KEY } from "./trpc.js";
+import { apiFetch, SESSION_EXPIRED_EVENT } from "./lib/api-transport.js";
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState(() =>
@@ -16,13 +17,19 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       : window.localStorage.getItem(DEVLET_AUTH_STORAGE_KEY) ?? ""
   );
   const [draft, setDraft] = useState(token);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  useEffect(() => {
+    const expired = () => setSessionExpired(true);
+    window.addEventListener(SESSION_EXPIRED_EVENT, expired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, expired);
+  }, []);
   // "unknown" while probing; "open" when a reverse proxy (e.g. Caddy + authentik) injects the bearer token.
   const [proxyAuth, setProxyAuth] = useState<"unknown" | "open" | "closed">(token ? "closed" : "unknown");
 
   useEffect(() => {
     if (token) return;
     let cancelled = false;
-    fetch("/trpc/agents.list", { credentials: "same-origin" })
+    apiFetch("/trpc/agents.list")
       .then((response) => {
         if (!cancelled) setProxyAuth(response.ok ? "open" : "closed");
       })
@@ -33,6 +40,16 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, [token]);
+
+  if (sessionExpired) {
+    return <div className="min-h-screen flex items-center justify-center bg-surface-base px-6">
+      <div className="card max-w-md p-6 space-y-4" role="alert">
+        <div className="text-gray-100">Your login session has expired</div>
+        <p className="text-[12px] text-gray-400">Reconnect to sign in again and return to this page. Your agents continue running.</p>
+        <button className="btn-primary" onClick={() => window.location.reload()}>reconnect / sign in</button>
+      </div>
+    </div>;
+  }
 
   if (token || proxyAuth === "open") {
     return <>{children}</>;

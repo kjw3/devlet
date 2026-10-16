@@ -364,7 +364,7 @@ export function AgentDetail() {
 
   const utils = trpc.useUtils();
 
-  const { data: agent, isLoading, error } = trpc.agents.get.useQuery(id!, {
+  const { data: agent, isLoading, error, refetch, isFetching } = trpc.agents.get.useQuery(id!, {
     enabled: !!id,
     refetchInterval: 5_000,
   });
@@ -396,12 +396,14 @@ export function AgentDetail() {
     );
   }
 
-  if (error || !agent) {
+  if (!agent || error?.data?.code === "NOT_FOUND" || error?.data?.code === "UNAUTHORIZED" || error?.data?.code === "FORBIDDEN") {
     return (
       <div className="flex-1 flex items-center justify-center text-gray-600">
         <div className="text-center">
           <div className="text-sm mb-1">{error ? "error loading agent" : "agent not found"}</div>
           {error && <div className="text-[11px] text-accent-red mb-3">{error.message}</div>}
+          <button className="btn-ghost" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? "reconnecting…" : "retry"}</button>
+          <button className="btn-ghost" onClick={() => window.location.reload()}>reconnect / sign in</button>
           <button className="btn-ghost" onClick={() => navigate("/")}>← back</button>
         </div>
       </div>
@@ -422,6 +424,11 @@ export function AgentDetail() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
+      {error && <div role="status" className="px-6 py-2 text-[12px] text-amber-400 border-b border-surface-border">
+        Connection interrupted — showing last known data. Updates will resume automatically.
+        <button className="btn-ghost ml-2" disabled={isFetching} onClick={() => void refetch()}>retry now</button>
+        <button className="btn-ghost ml-2" onClick={() => window.location.reload()}>reconnect / sign in</button>
+      </div>}
       {/* Header */}
       <div className="border-b border-surface-border px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
