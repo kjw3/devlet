@@ -510,11 +510,26 @@ export async function getStorageInfo(node: string, storage: string): Promise<Sto
 export interface PciDevice {
   id: string; // "0000:01:00.0"
   class: string; // "0x030000" (6 hex digits from the API)
-  /** Raw device id "vendor:device" (e.g. "10de:2204") — PVE's `pciid` field. */
+  /** Raw device id "vendor:device" (e.g. "10de:2204") — normalized here from
+   *  PVE's separate 0x-prefixed `vendor`/`device` fields (hardware/pci does
+   *  not expose a combined pciid; the mapping API's entries do). */
   pciid?: string;
+  vendor?: string; // "0x10de"
+  device?: string; // "0x2204"
   vendor_name?: string;
   device_name?: string;
   iommugroup?: number;
+}
+
+export function normalizePciid(d: {
+  pciid?: string;
+  vendor?: string;
+  device?: string;
+}): string | undefined {
+  if (d.pciid) return d.pciid.toLowerCase();
+  const vendor = d.vendor?.replace(/^0x/i, "");
+  const device = d.device?.replace(/^0x/i, "");
+  return vendor && device ? `${vendor}:${device}`.toLowerCase() : undefined;
 }
 
 /** Known discrete-GPU VRAM sizes (MiB) by PCI device id ("vendor:device").
@@ -567,7 +582,7 @@ export async function listPciDevices(node: string): Promise<PciDevice[]> {
     const devices = await pveGet<PciDevice[]>(
       `/nodes/${encodeURIComponent(node)}/hardware/pci?pci-class-blacklist=0x0600`
     );
-    return devices ?? [];
+    return (devices ?? []).map((d) => ({ ...d, pciid: normalizePciid(d) }));
   } catch {
     return [];
   }

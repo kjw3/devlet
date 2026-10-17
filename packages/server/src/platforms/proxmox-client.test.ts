@@ -300,3 +300,16 @@ test("gpuVramFloorMb sums VRAM from raw pciids with a conservative fallback", as
   // table sanity: fleet cards present
   assert.equal(GPU_VRAM_MIB_BY_PCIID["10de:1d01"], 2048); // GT 1030
 });
+
+test("normalizePciid derives vendor:device from PVE 9's 0x-prefixed fields", async () => {
+  // PVE 9 hardware/pci returns separate vendor/device fields, no combined
+  // pciid — this exact mismatch made the VRAM floor fall back to 8 GiB on a
+  // live 3090 hire (VM 4105 got 8192 MB instead of 24576).
+  const { normalizePciid } = await import("./proxmox-client.js");
+  assert.equal(normalizePciid({ vendor: "0x10de", device: "0x2204" }), "10de:2204");
+  assert.equal(normalizePciid({ vendor: "0x10DE", device: "0x2204" }), "10de:2204");
+  // combined pciid wins when present (mapping API shape)
+  assert.equal(normalizePciid({ pciid: "10DE:2204", vendor: "0x10de", device: "0x2204" }), "10de:2204");
+  assert.equal(normalizePciid({}), undefined);
+  assert.equal(normalizePciid({ vendor: "0x10de" }), undefined);
+});

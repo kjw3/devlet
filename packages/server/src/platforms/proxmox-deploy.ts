@@ -708,7 +708,12 @@ async function createQemuGuest(
       const vramFloor = gpuVramFloorMb(
         gpuIds.map((id) => bySlot.get(pciSlotKey(id))).filter((d) => d !== undefined)
       );
-      if (vramFloor > memoryMb) configUpdate["memory"] = vramFloor;
+      if (vramFloor > memoryMb) {
+        configUpdate["memory"] = vramFloor;
+        // Persist the effective size so agent records/UI show what runs,
+        // matching the disk write-back above (createProxmoxGuest).
+        agentConfig.resources.memoryMb = vramFloor;
+      }
     }
 
     // PVE restricts hostpci* (and args) to root@pam — API tokens of ordinary
