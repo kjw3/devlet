@@ -172,14 +172,60 @@ fi
 
 # ─── Launch ───────────────────────────────────────────────────────────────────
 
-if [ -n "$MISSION" ]; then
-  hermes chat -q "$MISSION"
+# Helper: after a mission completes, either idle (persistent) or exit naturally.
+# Mirrors entrypoint.base.sh: never `exec hermes` here. Interactive Hermes needs
+# a TTY; under Docker (stdin=/dev/null) it starts, finds stdin unusable, and
+# exits — with the unless-stopped restart policy that exits the container and
+# re-runs the mission on every restart, looping forever. Persistent interactive
+# use happens through the ttyd web terminal instead.
+# Touches an idle sentinel so the container healthcheck (pgrep hermes) stays
+# green while idling with no hermes process.
+keep_alive_if_persistent() {
   if [ "$PERSISTENT" = "true" ]; then
-    echo "[devlet] mission complete — starting Hermes (persistent=true)"
-    exec hermes
+    echo "[devlet] mission complete — idling (persistent=true); use the web terminal to run Hermes interactively"
+    touch "$HERMES_HOME/.devlet-idle"
+    exec tail -f /dev/null
   fi
+}
+
+# Helper: report mission lifecycle events to the devlet server.
+# Fire-and-forget (backgrounded, short timeout): a slow or unreachable server
+# must never delay or fail the mission. Events carry no mission content.
+report_mission_event() {
+  if [ -n "${DEVLET_SERVER_URL:-}" ] && [ -n "${DEVLET_AGENT_ID:-}" ] && [ -n "${DEVLET_AGENT_EVENT_TOKEN:-}" ]; then
+    curl -sS -m 5 -o /dev/null \
+      -H 'content-type: application/json' \
+      -d "{\"agentId\":\"$DEVLET_AGENT_ID\",\"token\":\"$DEVLET_AGENT_EVENT_TOKEN\",\"event\":\"$1\",\"at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \
+      "$DEVLET_SERVER_URL/api/agent-event" >/dev/null 2>&1 &
+  fi
+}
+
+# Helper: run the mission command with lifecycle reporting (started → completed/failed).
+# set +e around the mission: a failed one-shot turn (rate limit, auth error,
+# partial result → exit 1/130) must not trip the entrypoint's `set -e` — that
+# would exit the container and, with the restart policy, loop the mission.
+execute_mission() {
+  report_mission_event mission_started
+  set +e
+  "$@"
+  local rc=$?
+  set -e
+  if [ "$rc" -eq 0 ]; then
+    report_mission_event mission_completed
+  else
+    report_mission_event mission_failed
+  fi
+  return "$rc"
+}
+
+if [ -n "$MISSION" ]; then
+  rm -f "$HERMES_HOME/.devlet-idle"
+  execute_mission hermes chat -q "$MISSION"
+  keep_alive_if_persistent
 elif [ "$PERSISTENT" = "true" ]; then
-  exec hermes
+  echo "[devlet] no mission — idling (persistent=true); use the web terminal to run Hermes interactively"
+  touch "$HERMES_HOME/.devlet-idle"
+  exec tail -f /dev/null
 else
   exec hermes
 fi

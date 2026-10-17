@@ -350,7 +350,10 @@ export async function createAgentContainer(config: AgentConfig): Promise<string>
     ...(config.type === "hermes"
       ? {
           Healthcheck: {
-            Test: ["CMD-SHELL", "pgrep -f '^/opt/hermes/.venv/bin/python.*hermes|hermes' >/dev/null"],
+            // Healthy when a hermes process runs (mission/interactive) OR the
+            // entrypoint reached its persistent idle state (entrypoint writes
+            // $HERMES_HOME/.devlet-idle before `exec tail -f /dev/null`).
+            Test: ["CMD-SHELL", "pgrep -f '^/opt/hermes/.venv/bin/python.*hermes|hermes' >/dev/null || test -f \"${HERMES_HOME:-$HOME/.hermes}/.devlet-idle\""],
             Interval: 30_000_000_000,
             Timeout: 5_000_000_000,
             Retries: 3,

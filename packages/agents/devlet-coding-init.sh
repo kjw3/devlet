@@ -144,6 +144,10 @@ $(_dci_kv GEMINI_API_KEY "$LITELLM_API_KEY")
 $(_dci_kv GOOGLE_GENERATIVE_AI_API_KEY "$LITELLM_API_KEY")"
   [ -n "$_dci_gmodel" ] && _dci_env="$_dci_env
 $(_dci_kv GEMINI_MODEL "$_dci_gmodel")"
+  # gemini >= 0.64 refuses headless runs in an untrusted directory (rc 55); the
+  # container's /workspace is never trusted interactively, so trust it here.
+  _dci_env="$_dci_env
+$(_dci_kv GEMINI_CLI_TRUST_WORKSPACE true)"
   # Headless gemini rejects the env-derived "gateway" auth type ("Invalid auth method
   # selected"), so pin the API-key type; it still honours GOOGLE_GEMINI_BASE_URL.
   mkdir -p ~/.gemini
@@ -162,7 +166,7 @@ if $_dci_litellm && command -v pi &>/dev/null && \
   _dci_gmodel=$(_dci_litellm_model pi)
   if [ -n "$_dci_gmodel" ]; then
     mkdir -p ~/.pi/agent
-    printf '{"providers":{"litellm":{"baseUrl":"%s/v1","api":"openai-completions","apiKey":"LITELLM_API_KEY","models":[{"id":"%s"}]}}}\n' \
+    printf '{"providers":{"litellm":{"baseUrl":"%s/v1","api":"openai-completions","apiKey":"$LITELLM_API_KEY","models":[{"id":"%s"}]}}}\n' \
       "$_dci_litellm_base" "$_dci_gmodel" > ~/.pi/agent/models.json
     _dci_wrap pi "$(_dci_kv LITELLM_API_KEY "$LITELLM_API_KEY")" "--provider litellm --model $(printf '%q' "$_dci_gmodel")"
     echo "[devlet] litellm: pi model=$_dci_gmodel"
