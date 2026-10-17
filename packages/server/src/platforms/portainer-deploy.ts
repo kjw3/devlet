@@ -3,6 +3,7 @@ import { config as appConfig } from "../config.js";
 import { agentImageFor, parseDockerLogBuffer } from "./docker.js";
 import { gpuDeviceRequests } from "./hardware.js";
 import { buildContainerEnv } from "./env.js";
+import { agentVolumeMounts, agentVolumeNames } from "./volumes.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -127,6 +128,21 @@ export async function createPortainerContainer(
     await removePortainerContainer(endpointId, existingContainerId);
   }
 
+  // Named volumes for persistence (workspace + home). Idempotent create via the
+  // Engine API; Docker copies the image's initial content into each on first use.
+  for (const volumeName of agentVolumeNames(agentConfig.id)) {
+    const volRes = await fetch(proxyUrl(endpointId, "/volumes/create"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ Name: volumeName }),
+    });
+    // 200 created, 201 also fine; a conflict (already exists) is acceptable.
+    if (!volRes.ok && volRes.status !== 409) {
+      const detail = await volRes.text();
+      throw new Error(`Portainer volume create (${volumeName}) failed: HTTP ${volRes.status} — ${detail}`);
+    }
+  }
+
   const ExposedPorts: Record<string, Record<string, never>> = {};
   const PortBindings: Record<string, Array<{ HostIp: string; HostPort: string }>> = {};
 
@@ -184,6 +200,7 @@ export async function createPortainerContainer(
           NanoCpus: Math.round(agentConfig.resources.cpus * 1e9),
           Memory: agentConfig.resources.memoryMb * 1024 * 1024,
           PortBindings,
+          Binds: agentVolumeMounts(agentConfig.id),
           // Same Engine-API GPU request as the local Docker platform
           // (`docker run --gpus all`); requires nvidia-container-toolkit on
           // the endpoint host.
@@ -238,6 +255,39 @@ export async function stopPortainerContainer(
   // 304 = already stopped
   if (!res.ok && res.status !== 304 && res.status !== 404) {
     throw new Error(`Portainer container stop failed: HTTP ${res.status}`);
+  }
+}
+
+/** Start an existing (stopped) container in place — non-destructive. */
+export async function startPortainerContainer(
+  endpointId: number,
+  containerId: string
+): Promise<void> {
+  const res = await fetch(
+    proxyUrl(endpointId, `/containers/${containerId}/start`),
+    { method: "POST", headers: headers() }
+  );
+  // 304 = already started
+  if (!res.ok && res.status !== 304 && res.status !== 404) {
+    throw new Error(`Portainer container start failed: HTTP ${res.status}`);
+  }
+}
+
+/**
+ * Remove the named volumes an agent owns (fire/delete only). Best-effort per
+ * volume — a missing volume is not an error.
+ */
+export async function removePortainerVolumes(endpointId: number, agentId: string): Promise<void> {
+  for (const volumeName of agentVolumeNames(agentId)) {
+    const res = await fetch(proxyUrl(endpointId, `/volumes/${encodeURIComponent(volumeName)}`), {
+      method: "DELETE",
+      headers: headers(),
+    });
+    // 204 removed, 404 already gone — both fine.
+    if (!res.ok && res.status !== 404) {
+      // Non-fatal: log and continue so one stuck volume doesn't block cleanup.
+      console.warn(`[portainer] volume remove (${volumeName}) failed: HTTP ${res.status}`);
+    }
   }
 }
 

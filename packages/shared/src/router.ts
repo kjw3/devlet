@@ -92,6 +92,18 @@ export const appRouter = router({
       .input(z.string())
       .mutation(unimplemented as () => AgentState),
 
+    stop: publicProcedure
+      .input(z.string())
+      .mutation(unimplemented as () => void),
+
+    start: publicProcedure
+      .input(z.string())
+      .mutation(unimplemented as () => AgentState),
+
+    rebuild: publicProcedure
+      .input(z.string())
+      .mutation(unimplemented as () => AgentState),
+
     recover: publicProcedure
       .input(RecoverAgentInputSchema)
       .mutation(unimplemented as () => AgentState),

@@ -17,6 +17,7 @@ export type AgentStatus =
   | "provisioning"
   | "bootstrapping"
   | "running"
+  | "stopped"
   | "idle"
   | "terminated"
   | "error";

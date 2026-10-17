@@ -51,7 +51,7 @@ import { countGpuClaims, pickDefaultGpuDevices, resolveHostGpuDevices, validateG
 import { probeKomodo, probeKomodoCached } from "../platforms/komodo.js";
 import { isServerOnTailnet } from "../tailscale/node.js";
 import { findAgentDevice, probeTailscale, removeAgentDevices, isTailscaleEnabledFor } from "../tailscale/client.js";
-import { provisionAgent, stopAgent, removeAgent, getAgentLogs, removeOrphanedProvision } from "../platforms/dispatch.js";
+import { provisionAgent, stopAgent, startAgent, removeAgent, removeAgentVolumes, getAgentLogs, removeOrphanedProvision } from "../platforms/dispatch.js";
 import { listAgentStates, loadAgentState, saveAgentState, deleteAgentState } from "../agents/state.js";
 import { sanitizeEnv, sanitizeAgentStateSummary } from "../agents/sanitize.js";
 import {
@@ -797,6 +797,9 @@ export const appRouter = t.router({
       if (state.platformRef === "pending") {
         await removeOrphanedProvision(state.config);
       }
+      // Fire is a full teardown: also remove the agent's named volumes so its
+      // workspace/home data is actually gone (not just the container).
+      await removeAgentVolumes(state.platformRef, state.config.id).catch(() => {});
       await removeAgentDevices(state.config.id);
       state.status = "terminated";
       await saveAgentState(state);
@@ -810,6 +813,8 @@ export const appRouter = t.router({
         const state = await loadAgentState(input);
         await stopAgent(state.platformRef);
         await removeAgent(state.platformRef);
+        // Delete is a full teardown: remove the agent's named volumes too.
+        await removeAgentVolumes(state.platformRef, state.config.id).catch(() => {});
         await removeAgentDevices(state.config.id);
       } catch {
         // Non-fatal: proceed with state deletion regardless
@@ -817,9 +822,81 @@ export const appRouter = t.router({
       await deleteAgentState(input);
     }),
 
+    /**
+     * Stop the agent in place. Non-destructive: the container and its named
+     * volumes (workspace + home) are preserved, so `start` restores exactly
+     * what was there. Sets status to `stopped` so the reconciler leaves it
+     * alone (it is intentionally off, not crashed).
+     */
+    stop: authProcedure.input(z.string()).mutation(async ({ input }) => {
+      const state = await loadAgentState(input);
+      await stopAgent(state.platformRef);
+      state.status = "stopped";
+      delete state.error;
+      state.logs.push("Agent stopped (data preserved)");
+      await saveAgentState(state);
+      return sanitizeAgentStateSummary(state);
+    }),
+
+    /**
+     * Start a stopped agent in place. Non-destructive: brings back the existing
+     * container and its preserved volumes. If the container is gone (e.g. the
+     * platform was rebooted and dropped it), this falls back to re-provisioning
+     * — which still reuses the named volumes, so data survives.
+     */
+    start: authProcedure.input(z.string()).mutation(async ({ input }) => {
+      const state = await loadAgentState(input);
+      try {
+        await startAgent(state.platformRef);
+      } catch {
+        // Container missing — re-provision. Named volumes are reused, so the
+        // agent's workspace/home data is preserved.
+        const platformRef = await provisionAgent(state.config);
+        state.platformRef = platformRef;
+      }
+      state.status = "running";
+      delete state.error;
+      state.config.lastActiveAt = new Date().toISOString();
+      state.logs.push("Agent started (data preserved)");
+      await saveAgentState(state);
+      return sanitizeAgentStateSummary(state);
+    }),
+
+    /**
+     * Non-destructive restart: stop then start the same container. Preserves
+     * the container's writable layer AND its named volumes — nothing is lost.
+     * Use this for "it's stuck, nudge it". Use `rebuild` to reset to a fresh
+     * image (preserving only workspace/home via the named volumes).
+     */
     restart: authProcedure.input(z.string()).mutation(async ({ input }) => {
       const state = await loadAgentState(input);
-      // Swallow stop/remove errors — container may already be gone (terminated state).
+      await stopAgent(state.platformRef).catch(() => {});
+      try {
+        await startAgent(state.platformRef);
+      } catch {
+        // Container missing — re-provision (volumes reused, data preserved).
+        const platformRef = await provisionAgent(state.config);
+        state.platformRef = platformRef;
+      }
+      state.status = "running";
+      delete state.error;
+      state.config.lastActiveAt = new Date().toISOString();
+      state.logs.push("Restart requested — stopped and started in place (data preserved)");
+      await saveAgentState(state);
+      return sanitizeAgentStateSummary(state);
+    }),
+
+    /**
+     * Full rebuild: stop, remove the container, and re-provision from the image.
+     * The agent's named volumes (workspace + home) are preserved, so project
+     * files and tool configs survive — but everything else (the container's
+     * writable layer, e.g. packages installed outside the manifest, /tmp, etc.)
+     * resets to the image default. Use this to recover a broken agent state or
+     * pick up a new image. Data in /workspace and /home/agent is NOT lost.
+     */
+    rebuild: authProcedure.input(z.string()).mutation(async ({ input }) => {
+      const state = await loadAgentState(input);
+      // Swallow stop/remove errors — container may already be gone.
       await stopAgent(state.platformRef).catch(() => {});
       await removeAgent(state.platformRef).catch(() => {});
       if (state.config.platform.type === "portainer") {
@@ -828,14 +905,13 @@ export const appRouter = t.router({
           `devlet-${state.config.id}`
         ).catch(() => {});
       }
-      const wasTerminated = state.status === "terminated";
       await refreshAgentAccessPorts(state.config);
       const platformRef = await provisionAgent(state.config);
       state.platformRef = platformRef;
       state.status = "running";
       delete state.error;
       state.config.lastActiveAt = new Date().toISOString();
-      state.logs.push(`${wasTerminated ? "Start" : "Restart"} requested — reprovisioning agent`);
+      state.logs.push("Rebuild requested — reprovisioned from image (workspace/home preserved)");
       await saveAgentState(state);
       return sanitizeAgentStateSummary(state);
     }),

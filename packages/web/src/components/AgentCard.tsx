@@ -143,6 +143,17 @@ export function AgentCard({ agent, onFire, onDelete, onStart, onRecover }: Agent
               </button>
             </>
           )}
+          {agent.status === "stopped" && (
+            <button
+              className="btn-ghost text-[10px]"
+              onClick={(e) => {
+                e.stopPropagation();
+                onStart?.(agent.config.id);
+              }}
+            >
+              start
+            </button>
+          )}
         </div>
       </div>
     </div>

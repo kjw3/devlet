@@ -5,6 +5,7 @@ const STATUS_STYLES: Record<AgentStatus, string> = {
   bootstrapping: "bg-status-bootstrapping animate-pulse",
   running: "bg-status-running",
   idle: "bg-status-idle",
+  stopped: "bg-status-stopped",
   terminated: "bg-status-terminated",
   error: "bg-status-error animate-pulse",
 };

@@ -5,6 +5,7 @@ const STATUS_SYMBOLS: Record<string, string> = {
   provisioning: "◐",
   bootstrapping: "◑",
   running: "●",
+  stopped: "◼",
   idle: "○",
   terminated: "✕",
   error: "!",

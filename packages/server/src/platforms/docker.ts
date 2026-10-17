@@ -4,6 +4,7 @@ import fs from "fs";
 import net from "net";
 import type { AgentConfig, AgentType, DockerImage, DockerStatus, GpuDeviceInfo } from "@devlet/shared";
 import { buildContainerEnv } from "./env.js";
+import { agentVolumeMounts, agentVolumeNames } from "./volumes.js";
 
 function normalizeArchitecture(value: string | undefined): "amd64" | "arm64" | "unknown" {
   const normalized = (value ?? "").toLowerCase();
@@ -311,6 +312,18 @@ export async function createAgentContainer(config: AgentConfig): Promise<string>
     await removeContainer(existingContainer.Id);
   }
 
+  // Named volumes for persistence (workspace + home). Docker copies the image's
+  // initial content into each on first use, so a fresh provision still gets the
+  // defaults while a rebuild reuses the agent's existing data. Creating them
+  // here (rather than relying on `docker run -v`) is idempotent.
+  for (const volumeName of agentVolumeNames(config.id)) {
+    try {
+      await docker.createVolume({ Name: volumeName });
+    } catch {
+      // Already exists — fine.
+    }
+  }
+
   const ExposedPorts: Record<string, Record<string, never>> = {};
   const PortBindings: Record<string, Array<{ HostIp: string; HostPort: string }>> = {};
 
@@ -371,6 +384,7 @@ export async function createAgentContainer(config: AgentConfig): Promise<string>
       NanoCpus: Math.round(config.resources.cpus * 1e9),
       Memory: config.resources.memoryMb * 1024 * 1024,
       PortBindings,
+      Binds: agentVolumeMounts(config.id),
       // `docker run --gpus all` equivalent — without this the container never
       // sees the GPU, even on hosts with the NVIDIA runtime.
       ...(config.gpu?.required ? { DeviceRequests: gpuDeviceRequests(config.gpu.devices) } : {}),
@@ -402,6 +416,41 @@ export async function stopContainer(containerId: string): Promise<void> {
       return;
     }
     throw error;
+  }
+}
+
+/**
+ * Start an existing (stopped) container in place. Non-destructive: the
+ * container's writable layer and its named volumes are preserved, so a
+ * stop→start cycle loses no data. Starting an already-running container is a no-op.
+ */
+export async function startContainer(containerId: string): Promise<void> {
+  const docker = createDocker();
+
+  try {
+    await docker.getContainer(containerId).start();
+  } catch (error) {
+    const message = getErrorMessage(error).toLowerCase();
+    if (message.includes("already running") || message.includes("not modified") || message.includes("304")) {
+      return;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Remove the named volumes an agent owns. Called only on fire/delete — never on
+ * stop or rebuild, which must preserve the agent's data. Best-effort: a missing
+ * volume is not an error.
+ */
+export async function removeAgentVolumes(agentId: string): Promise<void> {
+  const docker = createDocker();
+  for (const volumeName of agentVolumeNames(agentId)) {
+    try {
+      await docker.getVolume(volumeName).remove();
+    } catch {
+      // Volume already gone — fine.
+    }
   }
 }
 

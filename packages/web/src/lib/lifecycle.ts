@@ -24,6 +24,7 @@ const STATUS_TO_LIFECYCLE: Record<AgentStatus, Lifecycle> = {
   bootstrapping: "starting",
   running: "running",
   idle: "running",
+  stopped: "stopped",
   error: "attention",
   terminated: "stopped",
 };

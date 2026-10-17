@@ -126,6 +126,7 @@ export const AgentStatusSchema = z.enum([
   "provisioning",
   "bootstrapping",
   "running",
+  "stopped",
   "idle",
   "terminated",
   "error",

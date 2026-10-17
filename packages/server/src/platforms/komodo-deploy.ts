@@ -5,6 +5,7 @@ import { gpuRunArg } from "./hardware.js";
 import { buildContainerEnv } from "./env.js";
 import { getKomodoClient, type Komodo } from "./komodo-client.js";
 import { listAgentStates } from "../agents/state.js";
+import { agentVolumeNames, agentVolumeMounts } from "./volumes.js";
 
 /**
  * Komodo container lifecycle.
@@ -172,6 +173,11 @@ export async function createKomodoContainer(agentConfig: AgentConfig, serverId: 
   const env = toKomodoEnvironment(await buildContainerEnv(agentConfig));
   const ports = buildPortMappings(agentConfig);
   const extraArgs = buildExtraArgs(agentConfig);
+  // Named volumes for persistence (workspace + home). Komodo's `volumes` field
+  // is a newline-separated list of `source:target` mappings (like `ports`);
+  // a bare name on the left is a named volume, which Docker auto-creates and
+  // seeds with the image's initial content on first use.
+  const volumes = agentVolumeMounts(agentConfig.id).join("\n");
 
   await komodo.write("CreateDeployment", {
     name,
@@ -181,6 +187,7 @@ export async function createKomodoContainer(agentConfig: AgentConfig, serverId: 
       environment: env,
       network: "bridge",
       ...(ports ? { ports } : {}),
+      ...(volumes ? { volumes } : {}),
       ...(extraArgs.length > 0 ? { extra_args: extraArgs } : {}),
       replicas: 1,
       termination_timeout: 10,
@@ -201,6 +208,28 @@ export async function createKomodoContainer(agentConfig: AgentConfig, serverId: 
 export async function stopKomodoContainer(_serverId: string, deploymentName: string): Promise<void> {
   const komodo = client();
   await komodo.execute_and_poll("StopDeployment", { deployment: deploymentName });
+}
+
+/** Start an existing (stopped) deployment in place — non-destructive. */
+export async function startKomodoContainer(_serverId: string, deploymentName: string): Promise<void> {
+  const komodo = client();
+  await komodo.execute_and_poll("StartDeployment", { deployment: deploymentName });
+}
+
+/**
+ * Remove the named volumes an agent owns (fire/delete only). Komodo exposes no
+ * volume-create op, so volumes are created implicitly by the deployment's
+ * `volumes` field; here we delete them explicitly. Best-effort per volume.
+ */
+export async function removeKomodoVolumes(serverId: string, agentId: string): Promise<void> {
+  const komodo = client();
+  for (const volumeName of agentVolumeNames(agentId)) {
+    try {
+      await komodo.execute("DeleteVolume", { server: serverId, name: volumeName });
+    } catch {
+      // Volume already gone — fine.
+    }
+  }
 }
 
 /** Destroy the running container and delete the Deployment resource. */

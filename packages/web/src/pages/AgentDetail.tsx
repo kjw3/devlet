@@ -387,9 +387,19 @@ export function AgentDetail() {
   const restartMutation = trpc.agents.restart.useMutation({
     onSuccess: () => void utils.agents.get.invalidate(id),
   });
+  const stopMutation = trpc.agents.stop.useMutation({
+    onSuccess: () => void utils.agents.get.invalidate(id),
+  });
+  const startMutation = trpc.agents.start.useMutation({
+    onSuccess: () => void utils.agents.get.invalidate(id),
+  });
+  const rebuildMutation = trpc.agents.rebuild.useMutation({
+    onSuccess: () => void utils.agents.get.invalidate(id),
+  });
   const recoverMutation = trpc.agents.recover.useMutation({
     onSuccess: () => void utils.agents.get.invalidate(id),
   });
+  const [showRebuild, setShowRebuild] = useState(false);
 
   if (isLoading) {
     return (
@@ -458,7 +468,7 @@ export function AgentDetail() {
               {recoverMutation.isPending ? "recovering..." : "recover"}
             </button>
           )}
-          {status !== "terminated" && (
+          {status === "running" && (
             <>
               <button
                 className="btn-ghost"
@@ -466,6 +476,33 @@ export function AgentDetail() {
                 onClick={() => restartMutation.mutate(config.id)}
               >
                 {restartMutation.isPending ? "restarting..." : "restart"}
+              </button>
+              <button
+                className="btn-ghost"
+                disabled={stopMutation.isPending}
+                onClick={() => stopMutation.mutate(config.id)}
+              >
+                {stopMutation.isPending ? "stopping..." : "stop"}
+              </button>
+              <button className="btn-ghost" onClick={() => setShowRebuild(true)}>
+                rebuild
+              </button>
+              <button className="btn-danger" onClick={() => setShowFire(true)}>
+                fire
+              </button>
+            </>
+          )}
+          {status === "stopped" && (
+            <>
+              <button
+                className="btn-primary"
+                disabled={startMutation.isPending}
+                onClick={() => startMutation.mutate(config.id)}
+              >
+                {startMutation.isPending ? "starting..." : "start"}
+              </button>
+              <button className="btn-ghost" onClick={() => setShowRebuild(true)}>
+                rebuild
               </button>
               <button className="btn-danger" onClick={() => setShowFire(true)}>
                 fire
@@ -476,10 +513,10 @@ export function AgentDetail() {
             <>
               <button
                 className="btn-ghost"
-                disabled={restartMutation.isPending}
-                onClick={() => restartMutation.mutate(config.id)}
+                disabled={startMutation.isPending}
+                onClick={() => startMutation.mutate(config.id)}
               >
-                {restartMutation.isPending ? "starting..." : "start"}
+                {startMutation.isPending ? "starting..." : "start"}
               </button>
               <button
                 className="btn-danger"
@@ -552,7 +589,7 @@ export function AgentDetail() {
           {/* Connections */}
           {agent.access
             ? <ConnectionsPanel agentId={config.id} access={agent.access} />
-            : <div className="card p-4"><div className="label mb-1">connections</div><p className="text-[12px] text-gray-600 italic">{status === "terminated" ? "Agent has stopped — SSH and terminal are only available while it is running. Task output is available in the logs below." : "no connections available"}</p></div>
+            : <div className="card p-4"><div className="label mb-1">connections</div><p className="text-[12px] text-gray-600 italic">{status === "terminated" ? "Agent has stopped — SSH and terminal are only available while it is running. Task output is available in the logs below." : status === "stopped" ? "Agent is stopped — start it to restore SSH and terminal access. Task output is available in the logs below." : "no connections available"}</p></div>
           }
         </div>
 
@@ -597,6 +634,19 @@ export function AgentDetail() {
           danger
           onConfirm={() => fireMutation.mutate(config.id)}
           onCancel={() => setShowFire(false)}
+        />
+      )}
+      {showRebuild && (
+        <ConfirmModal
+          title="Rebuild agent?"
+          message={`"${config.name}" will be reprovisioned from its image. Its workspace (/workspace) and home (/home/agent) are preserved, but everything else in the container resets to the image default — e.g. packages installed outside the manifest, /tmp, and any ad-hoc state. Use this to recover a broken agent or pick up a new image.`}
+          confirmLabel={rebuildMutation.isPending ? "rebuilding..." : "rebuild"}
+          danger
+          onConfirm={() => {
+            setShowRebuild(false);
+            rebuildMutation.mutate(config.id);
+          }}
+          onCancel={() => setShowRebuild(false)}
         />
       )}
     </div>

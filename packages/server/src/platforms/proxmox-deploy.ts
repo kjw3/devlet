@@ -4,6 +4,7 @@ import { inspectGuestRuntime } from "./proxmox-runtime.js";
 import { config } from "../config.js";
 import { agentImageFor } from "./docker.js";
 import { buildContainerEnv } from "./env.js";
+import { agentVolumeNames, agentVolumeMounts } from "./volumes.js";
 import {
   allocateVmid,
   devletGuestName,
@@ -177,6 +178,13 @@ export async function buildBootstrapScript(agentConfig: AgentConfig): Promise<st
 
   const restartPolicy = agentConfig.persistent ? "unless-stopped" : "no";
 
+  // Named volumes for persistence (workspace + home). Created explicitly first
+  // (idempotent) and mounted so the agent's data survives container restarts
+  // within the guest. The guest disk itself persists across guest stop/start.
+  const volumeArgs = agentVolumeMounts(agentConfig.id)
+    .map((mount) => `-v ${mount}`)
+    .join(" ");
+
   return `set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
@@ -259,10 +267,13 @@ fi
 
 echo "[devlet] pulling agent image"
 docker pull ${shellQuote(image)}
+# Ensure the persistence volumes exist (idempotent; seeds image content on first use).
+${agentVolumeNames(agentConfig.id).map((v) => `docker volume create ${v}`).join("\n")}
 echo "[devlet] starting agent container"
 docker run -d --name devlet-agent \\
   --restart ${restartPolicy} \\
   ${gpuGuest ? "--gpus all \\\n" : ""}\
+  ${volumeArgs} \\
   ${envArgs} \\
   ${ports} \\
   ${shellQuote(image)}
@@ -849,6 +860,55 @@ export async function stopProxmoxGuest(
   vmid: number
 ): Promise<void> {
   await stopGuest(node, vmType, vmid);
+}
+
+/**
+ * Start the agent container inside the guest. Non-destructive: the container's
+ * named volumes (workspace + home) are preserved. Powers the guest on first if
+ * it is off, resolves its IP, then runs `docker start`. A missing container
+ * (never created, or removed) throws a distinct error so the caller can
+ * re-provision.
+ */
+export async function startProxmoxAgentContainer(
+  node: string,
+  vmType: "lxc" | "qemu",
+  vmid: number
+): Promise<void> {
+  const status = await getGuestStatus(node, vmType, vmid);
+  if (status?.status !== "running") {
+    await startGuest(node, vmType, vmid);
+  }
+  const ip = await resolveGuestIp(node, vmType, vmid);
+  if (!ip) {
+    throw new Error(`Cannot start agent container: no IP resolved for guest ${node}/${vmType}/${vmid}`);
+  }
+  const runtime = await inspectGuestRuntime(ip);
+  if (runtime === "missing") {
+    // Container was never created (or removed) — nothing to start. The caller
+    // should re-provision; surface as a distinct error.
+    throw new Error(`Agent container missing on guest ${ip} — re-provision required`);
+  }
+  if (runtime === true) return; // already running
+  await runGuestScript(ip, "docker start devlet-agent", { timeoutMs: 30_000 });
+}
+
+/**
+ * Remove the agent's named volumes inside the guest (fire/delete only). The
+ * guest's Docker daemon owns them; best-effort per volume. A missing IP (guest
+ * already gone) is a no-op.
+ */
+export async function removeProxmoxAgentVolumes(
+  node: string,
+  vmType: "lxc" | "qemu",
+  vmid: number,
+  agentId: string
+): Promise<void> {
+  const ip = await resolveGuestIp(node, vmType, vmid);
+  if (!ip) return; // guest unreachable — nothing to clean up
+  const rmCmds = agentVolumeNames(agentId)
+    .map((v) => `docker volume rm ${v} >/dev/null 2>&1 || true`)
+    .join("\n");
+  await runGuestScript(ip, rmCmds, { timeoutMs: 30_000 }).catch(() => {});
 }
 
 export async function removeProxmoxGuest(

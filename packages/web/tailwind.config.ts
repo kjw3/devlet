@@ -29,6 +29,7 @@ export default {
           bootstrapping: "#3b82f6",
           running: "#00ff88",
           idle: "#6b7280",
+          stopped: "#0ea5e9",
           terminated: "#374151",
           error: "#ff3b5c",
         },

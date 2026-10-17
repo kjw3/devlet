@@ -5,6 +5,8 @@ import {
   getContainerLogs,
   getContainerRunning,
   removeContainer,
+  removeAgentVolumes as removeDockerVolumes,
+  startContainer,
   stopContainer,
 } from "./docker.js";
 import {
@@ -12,6 +14,8 @@ import {
   getPortainerContainerLogs,
   getPortainerContainerRunning,
   removePortainerContainer,
+  removePortainerVolumes,
+  startPortainerContainer,
   stopPortainerContainer,
 } from "./portainer-deploy.js";
 import {
@@ -19,13 +23,17 @@ import {
   getKomodoContainerLogs,
   getKomodoContainerRunning,
   removeKomodoContainer,
+  removeKomodoVolumes,
+  startKomodoContainer,
   stopKomodoContainer,
 } from "./komodo-deploy.js";
 import {
   createProxmoxGuest,
   getProxmoxGuestLogs,
   getProxmoxGuestRunning,
+  removeProxmoxAgentVolumes,
   removeProxmoxGuest,
+  startProxmoxAgentContainer,
   stopProxmoxGuest,
 } from "./proxmox-deploy.js";
 import { allocateVmid } from "./proxmox-client.js";
@@ -118,6 +126,41 @@ export async function stopAgent(platformRef: string): Promise<void> {
   if (parsed.type === "komodo") return stopKomodoContainer(parsed.serverId, parsed.deploymentName);
   if (parsed.type === "proxmox") {
     return stopProxmoxGuest(parsed.node, parsed.vmType, Number(parsed.vmId));
+  }
+}
+
+/**
+ * Start an existing (stopped) agent in place. Non-destructive: the agent's
+ * named volumes (workspace + home) and, where applicable, the container's
+ * writable layer are preserved, so a stop→start cycle loses no data. This is
+ * the new `restart` semantics; the old full-reprovision behavior is `rebuild`.
+ */
+export async function startAgent(platformRef: string): Promise<void> {
+  const parsed = parsePlatformRef(platformRef);
+  if (parsed.type === "pending") return;
+  if (parsed.type === "docker") return startContainer(parsed.containerId);
+  if (parsed.type === "portainer") return startPortainerContainer(parsed.endpointId, parsed.containerId);
+  if (parsed.type === "komodo") return startKomodoContainer(parsed.serverId, parsed.deploymentName);
+  if (parsed.type === "proxmox") {
+    // Proxmox: power the guest on if it is off, then start the agent container
+    // inside it. Both steps preserve the agent's named volumes.
+    return startProxmoxAgentContainer(parsed.node, parsed.vmType, Number(parsed.vmId));
+  }
+}
+
+/**
+ * Remove the named volumes an agent owns. Called only on fire/delete — never
+ * on stop or rebuild, which must preserve the agent's data. Best-effort: a
+ * missing volume is not an error.
+ */
+export async function removeAgentVolumes(platformRef: string, agentId: string): Promise<void> {
+  const parsed = parsePlatformRef(platformRef);
+  if (parsed.type === "pending") return;
+  if (parsed.type === "docker") return removeDockerVolumes(agentId);
+  if (parsed.type === "portainer") return removePortainerVolumes(parsed.endpointId, agentId);
+  if (parsed.type === "komodo") return removeKomodoVolumes(parsed.serverId, agentId);
+  if (parsed.type === "proxmox") {
+    return removeProxmoxAgentVolumes(parsed.node, parsed.vmType, Number(parsed.vmId), agentId);
   }
 }
 
