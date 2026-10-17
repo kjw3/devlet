@@ -702,11 +702,14 @@ async function createQemuGuest(
       // Passthrough RAM floor: guest RAM must be ≥ Σ VRAM of the passed
       // cards, or the BAR mapping can break boot / allocation. The chosen
       // devices' raw pciids give their VRAM (table lookup, conservative
-      // fallback); the floor only ever raises the requested memory.
+      // fallback); the floor only ever raises the requested memory. Keyed by
+      // full PCI id — slot keys collide between the GPU function and its
+      // audio function, and the audio device (not in the VRAM table) must
+      // not shadow the GPU (this produced an 8 GiB floor on the 3090).
       const pciDevices = await listPciDevices(node);
-      const bySlot = new Map(pciDevices.map((d) => [pciSlotKey(d.id), d]));
+      const byId = new Map(pciDevices.map((d) => [d.id.toLowerCase(), d]));
       const vramFloor = gpuVramFloorMb(
-        gpuIds.map((id) => bySlot.get(pciSlotKey(id))).filter((d) => d !== undefined)
+        gpuIds.map((id) => byId.get(id.toLowerCase())).filter((d) => d !== undefined)
       );
       if (vramFloor > memoryMb) {
         configUpdate["memory"] = vramFloor;

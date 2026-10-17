@@ -313,3 +313,17 @@ test("normalizePciid derives vendor:device from PVE 9's 0x-prefixed fields", asy
   assert.equal(normalizePciid({}), undefined);
   assert.equal(normalizePciid({ vendor: "0x10de" }), undefined);
 });
+
+test("gpuVramFloorMb: the GPU's audio function must not shadow the GPU by slot key", async () => {
+  // pc2's 3090 exposes 0000:02:00.0 (GPU, 10de:2204) and 0000:02:00.1
+  // (audio, 10de:1a81). Slot-keyed maps let the audio device overwrite the
+  // GPU entry → fallback 8192 instead of 24576 (live bug, VM 4716). The
+  // deploy now keys by full device id — mirror that here.
+  const devices = [
+    { id: "0000:02:00.0", pciid: "10de:2204" },
+    { id: "0000:02:00.1", pciid: "10de:1a81" }, // audio — not in the table
+  ];
+  const byId = new Map(devices.map((d) => [d.id.toLowerCase(), d]));
+  const { gpuVramFloorMb } = await import("./proxmox-client.js");
+  assert.equal(gpuVramFloorMb([byId.get("0000:02:00.0")!]), 24576);
+});
