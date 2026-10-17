@@ -61,6 +61,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates bash procps \
     ripgrep fd-find jq python3 openssh-client openssh-server less make \
     nano vim-tiny tmux \
+    sudo \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/fdfind /usr/local/bin/fd
 
@@ -142,11 +143,23 @@ COPY packages/agents/devlet-tailscale.sh /usr/local/bin/devlet-tailscale
 COPY packages/agents/devlet-services.sh /usr/local/bin/devlet-services
 COPY packages/agents/devlet-service-runner.py /usr/local/bin/devlet-service-runner
 COPY packages/agents/devlet-systemctl.sh /usr/local/bin/systemctl
-RUN chmod +x /entrypoint.sh /usr/local/bin/devlet-terminal /usr/local/bin/devlet-ssh /usr/local/bin/devlet-tailscale /usr/local/bin/devlet-coding-init /usr/local/bin/devlet-services /usr/local/bin/devlet-service-runner /usr/local/bin/systemctl
+COPY packages/agents/devlet-manifest.sh /usr/local/bin/devlet-manifest
+RUN chmod +x /entrypoint.sh /usr/local/bin/devlet-terminal /usr/local/bin/devlet-ssh /usr/local/bin/devlet-tailscale /usr/local/bin/devlet-coding-init /usr/local/bin/devlet-services /usr/local/bin/devlet-service-runner /usr/local/bin/systemctl /usr/local/bin/devlet-manifest
 
 # Create non-root agent user — coding agents refuse --dangerously-skip-permissions as root
 RUN useradd --create-home --user-group --shell /bin/bash agent && \
     mkdir -p /workspace /home/agent/.config && chown -R agent:agent /workspace /home/agent
+
+# Passwordless sudo for the agent user, scoped to package management. This lets
+# the agent (or its manifest) install system/npm/pip packages to update its own
+# harness and add task dependencies — without a full root shell.
+#   apt-get  — system packages (update/install/remove/clean)
+#   npm      — global npm packages (the agent harnesses live here)
+#   pip      — python packages
+#   devlet-manifest — the manifest tool itself (so `add` can install on the spot)
+RUN printf '%s\n' \
+    'agent ALL=(root) NOPASSWD: /usr/bin/apt-get, /usr/bin/npm, /usr/local/bin/npm, /usr/bin/python3, /usr/local/bin/python3, /usr/local/bin/devlet-manifest' \
+    > /etc/sudoers.d/devlet && chmod 0440 /etc/sudoers.d/devlet
 
 ENV HOME=/home/agent
 

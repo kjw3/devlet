@@ -52,10 +52,16 @@ fi
 git config --global user.email "agent@devlet" 2>/dev/null || true
 git config --global user.name "Devlet Agent" 2>/dev/null || true
 
-# Initialise workspace as a git repo if it isn't one already
-if [ ! -d "/workspace/.git" ]; then
-  git -C /workspace init -q
-fi
+# /workspace is a clean project root (not auto-initialized as a git repo) so
+# agents can `git clone` real repositories into it. Agent-level context lives in
+# ~/.devlet (on the persistent home volume), not in /workspace.
+mkdir -p ~/.devlet
+
+# Apply the persisted package manifest (system + npm + pip installs the agent
+# recorded in prior sessions). The script self-escalates via sudo (scoped in
+# /etc/sudoers.d/devlet); no-op when the manifest is empty. Best-effort — a
+# failure here must not block the agent from starting.
+/usr/local/bin/devlet-manifest apply || echo "[devlet] manifest apply failed (continuing)"
 
 # Helper: after a mission completes, either idle (persistent) or exit naturally
 keep_alive_if_persistent() {
