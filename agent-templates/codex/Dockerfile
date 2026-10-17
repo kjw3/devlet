@@ -6,8 +6,8 @@ RUN apt-get update && apt-get install -y \
     git curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Codex CLI
-RUN npm install -g @openai/codex
+# Install Codex CLI (pinned — see docs/dependency-pins.md)
+RUN npm install -g @openai/codex@0.163.0
 
 WORKDIR /workspace
 

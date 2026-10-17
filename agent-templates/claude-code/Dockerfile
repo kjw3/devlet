@@ -6,8 +6,8 @@ RUN apt-get update && apt-get install -y \
     git curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI
-RUN npm install -g @anthropic-ai/claude-code
+# Install Claude Code CLI (pinned — see docs/dependency-pins.md)
+RUN npm install -g @anthropic-ai/claude-code@2.1.302
 
 WORKDIR /workspace
 

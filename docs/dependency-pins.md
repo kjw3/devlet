@@ -10,11 +10,11 @@ Pinned as of 2026-10-13:
 | Node.js 22 LTS image (server/web builds) | `node:22.23.3-slim` | Node.js download page / archive |
 | Node.js 24 LTS image (agent base; OpenClaw requires >=24.16) | `node:24.21.0-slim` | Node.js download page / archive |
 | pnpm | `10.33.0` | npm registry (`npm view pnpm version`) |
-| `@anthropic-ai/claude-code` | `2.1.296` | npm registry |
-| `@openai/codex` | `0.162.1` | npm registry |
-| `opencode-ai` | `1.19.0` | npm registry |
-| `@mariozechner/pi-coding-agent` | `0.73.1` | npm registry |
-| `@google/gemini-cli` | `0.63.0` | npm registry |
+| `@anthropic-ai/claude-code` | `2.1.302` | npm registry |
+| `@openai/codex` | `0.163.0` | npm registry |
+| `opencode-ai` | `1.19.3` | npm registry |
+| `@earendil-works/pi-coding-agent` (formerly `@mariozechner/pi-coding-agent`) | `1.3.0` | npm registry |
+| `@google/gemini-cli` | `0.64.0` | npm registry |
 | `openclaw` npm package | `2026.4.11` | npm registry |
 | `ttyd` | `1.7.7` | upstream Git tags |
 | `herdr` (`herdrdev/herdr`) | `v0.9.3` (sha256-verified in `Dockerfile.base`) | GitHub releases; pick a release at least two weeks old |
