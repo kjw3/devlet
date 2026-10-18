@@ -148,7 +148,7 @@ RUN chmod +x /entrypoint.sh /usr/local/bin/devlet-terminal /usr/local/bin/devlet
 
 # Create non-root agent user — coding agents refuse --dangerously-skip-permissions as root
 RUN useradd --create-home --user-group --shell /bin/bash agent && \
-    mkdir -p /workspace /home/agent/.config && chown -R agent:agent /workspace /home/agent
+    mkdir -p /workspace /home/agent/.config /home/agent/.local/bin && chown -R agent:agent /workspace /home/agent
 
 # Passwordless sudo for the agent user, scoped to package management. This lets
 # the agent (or its manifest) install system/npm/pip packages to update its own
@@ -166,6 +166,10 @@ RUN printf '%s\n' \
     > /etc/sudoers.d/devlet && chmod 0440 /etc/sudoers.d/devlet
 
 ENV HOME=/home/agent
+# Debian installs some packages (cowsay, sl, etc.) to /usr/games. /etc/profile adds
+# it to PATH for login shells, but the agent's tool calls run in non-login shells
+# that never source /etc/profile — so set it explicitly here (applies to all processes).
+ENV PATH=/home/agent/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/games:/usr/games
 
 USER agent
 WORKDIR /workspace
