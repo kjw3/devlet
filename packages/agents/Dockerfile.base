@@ -59,7 +59,7 @@ ARG REPOSITORY_URL=https://github.com/kjw3/devlet
 #   flags already used in the entrypoint are the correct approach for containerized agents.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates bash procps \
-    ripgrep fd-find jq python3 openssh-client openssh-server less make \
+    ripgrep fd-find jq python3 python3-pip python3-venv python3-virtualenv openssh-client openssh-server less make \
     nano vim-tiny tmux \
     sudo \
     && rm -rf /var/lib/apt/lists/* \
@@ -153,12 +153,16 @@ RUN useradd --create-home --user-group --shell /bin/bash agent && \
 # Passwordless sudo for the agent user, scoped to package management. This lets
 # the agent (or its manifest) install system/npm/pip packages to update its own
 # harness and add task dependencies — without a full root shell.
-#   apt-get  — system packages (update/install/remove/clean)
-#   npm      — global npm packages (the agent harnesses live here)
-#   pip      — python packages
+#   apt / apt-get — system packages (update/install/remove/clean)
+#   npm / npx     — global npm packages + npx (the agent harnesses live here)
+#   pip / pip3 / python3 -m pip — python packages
+#   virtualenv    — create/manage virtualenvs (venv needs python3-venv for ensurepip)
 #   devlet-manifest — the manifest tool itself (so `add` can install on the spot)
+# Note: the allowlist is deliberately narrow (no shell, no arbitrary commands).
+# A command NOT listed here will prompt for a password (which the agent has none),
+# so if a new package-manager entry point is added, add its path here too.
 RUN printf '%s\n' \
-    'agent ALL=(root) NOPASSWD: /usr/bin/apt-get, /usr/bin/npm, /usr/local/bin/npm, /usr/bin/python3, /usr/local/bin/python3, /usr/local/bin/devlet-manifest' \
+    'agent ALL=(root) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get, /usr/bin/pip, /usr/bin/pip3, /usr/bin/virtualenv, /usr/local/bin/npm, /usr/local/bin/npx, /usr/bin/python3, /usr/local/bin/python3, /usr/local/bin/devlet-manifest' \
     > /etc/sudoers.d/devlet && chmod 0440 /etc/sudoers.d/devlet
 
 ENV HOME=/home/agent
