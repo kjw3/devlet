@@ -53,6 +53,14 @@ USER root
 # Expose venv hermes bin on PATH
 RUN ln -sf /opt/hermes/.venv/bin/hermes /usr/local/bin/hermes
 
+# Install js-yaml locally next to the config module (for Node module resolution)
+COPY packages/agents/hermes-config.mjs /usr/local/lib/hermes-config.mjs
+RUN mkdir -p /usr/local/lib/hermes-config && \
+    mv /usr/local/lib/hermes-config.mjs /usr/local/lib/hermes-config/index.mjs && \
+    cd /usr/local/lib/hermes-config && \
+    npm init -y --silent && npm install --production js-yaml@4 --silent
+ENV HERMES_CONFIG_MODULE=/usr/local/lib/hermes-config/index.mjs
+
 COPY packages/agents/entrypoint.hermes.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

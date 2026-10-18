@@ -1,0 +1,12 @@
+{
+  "name": "@devlet/agents",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test hermes-config.test.mjs"
+  },
+  "devDependencies": {
+    "js-yaml": "^4.3.2"
+  }
+}
