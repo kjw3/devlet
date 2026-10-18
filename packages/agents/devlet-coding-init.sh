@@ -11,31 +11,71 @@
 [ -n "$GEMINI_API_KEY" ] && [ -z "$GOOGLE_GENERATIVE_AI_API_KEY" ] && \
   export GOOGLE_GENERATIVE_AI_API_KEY="$GEMINI_API_KEY"
 
+# ─── Per-harness config (from admin panel) ──────────────────────────────────
+# DEVLET_HARNESS_CONFIG is a JSON object mapping agent type to {provider, model}.
+# Each coding harness uses its own configured provider/model instead of defaulting
+# to the primary agent's. When absent, the tool falls back to auto-detection.
+_dci_harness_config="${DEVLET_HARNESS_CONFIG:-}"
+
+_dci_harness_model() {  # $1 = agent type; prints per-harness model or empty
+  [ -n "$_dci_harness_config" ] || return 0
+  python3 -c 'import json,sys; c=json.loads(sys.argv[1]); print(c.get(sys.argv[2],{}).get("model",""))' \
+    "$_dci_harness_config" "$1" 2>/dev/null
+}
+
+_dci_harness_provider() {  # $1 = agent type; prints per-harness provider or empty
+  [ -n "$_dci_harness_config" ] || return 0
+  python3 -c 'import json,sys; c=json.loads(sys.argv[1]); print(c.get(sys.argv[2],{}).get("provider",""))' \
+    "$_dci_harness_config" "$1" 2>/dev/null
+}
+
+# Returns true when a tool should use LiteLLM: either the per-harness provider
+# says "litellm", or the existing auto-detection logic applies.
+_dci_use_litellm() {  # $1 = agent type, $2 = native key var name (e.g. ANTHROPIC_API_KEY)
+  $_dci_litellm || return 1
+  # Per-harness config explicitly selects LiteLLM
+  local hp
+  hp=$(_dci_harness_provider "$1")
+  [ "$hp" = "litellm" ] && return 0
+  # Existing auto-detection: primary provider is litellm, or no provider set and
+  # the tool's native key is missing.
+  local native_key="${!2:-}"
+  if [ "${DEVLET_AGENT_PROVIDER:-}" = "litellm" ]; then return 0; fi
+  [ -z "${DEVLET_AGENT_PROVIDER:-}" ] && [ -z "$native_key" ] && return 0
+  return 1
+}
+
 # ─── LiteLLM gateway detection ───────────────────────────────────────────────
 # LiteLLM exposes Anthropic (/v1/messages), OpenAI (/v1/*) and Gemini (/gemini)
 # compatible endpoints, so one LITELLM_* pair can serve every coding CLI.
-# A tool uses it when explicitly selected (DEVLET_AGENT_PROVIDER=litellm) or,
-# with no provider selected, when its native provider key is missing.
 _dci_litellm=false
 [ -n "${LITELLM_BASE_URL:-}" ] && [ -n "${LITELLM_API_KEY:-}" ] && _dci_litellm=true
 _dci_litellm_base="${LITELLM_BASE_URL%/}"
 
-# Model for a tool when LiteLLM is the provider. An explicit model
-# (DEVLET_AGENT_MODEL, then DEVLET_DEFAULT_MODEL) always wins; otherwise pick the
-# best fit for the tool from the models the proxy actually serves (/v1/models).
-# LiteLLM has no default model of its own, so without this a CLI would ask for
-# names the proxy may not have.
+# Model for a tool when LiteLLM is the provider. Priority (highest → lowest):
+#   1. Per-harness model from DEVLET_HARNESS_CONFIG (admin-configured per tool)
+#   2. DEVLET_AGENT_MODEL (primary agent's model — only used if no per-harness config)
+#   3. DEVLET_DEFAULT_MODEL / LITELLM_MODEL (server-level defaults)
+#   4. Auto-detect from the models the proxy serves (/v1/models)
 _dci_models=""
-if $_dci_litellm && [ -z "${DEVLET_AGENT_MODEL:-}${DEVLET_DEFAULT_MODEL:-}${LITELLM_MODEL:-}" ]; then
+_dci_harness_models=$(printf '%s' "$_dci_harness_config" | python3 -c 'import json,sys; c=json.loads(sys.stdin.read() or "{}"); print("1" if any(v.get("model") for v in c.values()) else "0")' 2>/dev/null) || _dci_harness_models="0"
+if $_dci_litellm && [ "$_dci_harness_models" = "0" ] && [ -z "${DEVLET_AGENT_MODEL:-}${DEVLET_DEFAULT_MODEL:-}${LITELLM_MODEL:-}" ]; then
   _dci_models=$(curl -fsS --connect-timeout 3 -m 6 \
     -H "Authorization: Bearer $LITELLM_API_KEY" "${_dci_litellm_base}/v1/models" 2>/dev/null \
     | python3 -c 'import sys,json; [print(m["id"]) for m in json.load(sys.stdin).get("data",[]) if m.get("id")]' 2>/dev/null) || _dci_models=""
 fi
 
-_dci_litellm_model() {  # $1 = tool name; prints a model id (maybe empty)
-  if [ -n "${DEVLET_AGENT_MODEL:-}" ]; then printf '%s' "$DEVLET_AGENT_MODEL"; return; fi
+_dci_litellm_model() {  # $1 = tool name (for auto-detect), $2 = agent type (for per-harness lookup)
+  # 1. Per-harness model (highest priority — admin-configured per tool)
+  local hm
+  hm=$(_dci_harness_model "${2:-$1}")
+  if [ -n "$hm" ]; then printf '%s' "$hm"; return; fi
+  # 2. Primary agent model (only when this is the primary tool, or no per-harness config exists)
+  if [ -n "${DEVLET_AGENT_MODEL:-}" ] && [ -z "$_dci_harness_config" ]; then printf '%s' "$DEVLET_AGENT_MODEL"; return; fi
+  # 3. Server-level defaults
   if [ -n "${DEVLET_DEFAULT_MODEL:-}" ]; then printf '%s' "$DEVLET_DEFAULT_MODEL"; return; fi
   if [ -n "${LITELLM_MODEL:-}" ]; then printf '%s' "$LITELLM_MODEL"; return; fi
+  # 4. Auto-detect from served models
   [ -n "$_dci_models" ] || return 0
   printf '%s\n' "$_dci_models" | python3 -c '
 import sys, re
@@ -103,9 +143,8 @@ if command -v claude &>/dev/null; then
   mkdir -p ~/.claude
   [ -f ~/.claude/settings.json ] || \
     printf '{"theme":"dark","hasCompletedOnboarding":true}\n' > ~/.claude/settings.json
-  if $_dci_litellm && { [ "${DEVLET_AGENT_PROVIDER:-}" = "litellm" ] || \
-      { [ -z "${DEVLET_AGENT_PROVIDER:-}" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; }; }; then
-    _dci_gmodel=$(_dci_litellm_model claude-code)
+  if _dci_use_litellm claude-code ANTHROPIC_API_KEY; then
+    _dci_gmodel=$(_dci_litellm_model claude-code claude-code)
     _dci_env="$(_dci_kv ANTHROPIC_BASE_URL "$_dci_litellm_base")
 $(_dci_kv ANTHROPIC_AUTH_TOKEN "$LITELLM_API_KEY")
 unset ANTHROPIC_API_KEY"
@@ -135,10 +174,8 @@ $(_dci_kv CLAUDE_CODE_MAX_OUTPUT_TOKENS "$_dci_out")"
 fi
 
 # ─── Gemini CLI ──────────────────────────────────────────────────────────────
-if $_dci_litellm && command -v gemini &>/dev/null && \
-   { [ "${DEVLET_AGENT_PROVIDER:-}" = "litellm" ] || \
-     { [ -z "${DEVLET_AGENT_PROVIDER:-}" ] && [ -z "${GEMINI_API_KEY:-}" ]; }; }; then
-  _dci_gmodel=$(_dci_litellm_model gemini)
+if command -v gemini &>/dev/null && _dci_use_litellm gemini GEMINI_API_KEY; then
+  _dci_gmodel=$(_dci_litellm_model gemini gemini)
   _dci_env="$(_dci_kv GOOGLE_GEMINI_BASE_URL "${_dci_litellm_base}/gemini")
 $(_dci_kv GEMINI_API_KEY "$LITELLM_API_KEY")
 $(_dci_kv GOOGLE_GENERATIVE_AI_API_KEY "$LITELLM_API_KEY")"
@@ -160,10 +197,8 @@ fi
 # ─── Pi ──────────────────────────────────────────────────────────────────────
 # Pi defaults to the "google" provider, so pin it to the litellm provider defined
 # in models.json whenever LiteLLM is the gateway.
-if $_dci_litellm && command -v pi &>/dev/null && \
-   { [ "${DEVLET_AGENT_PROVIDER:-}" = "litellm" ] || \
-     { [ -z "${DEVLET_AGENT_PROVIDER:-}" ] && [ -z "${ANTHROPIC_API_KEY:-}${OPENAI_API_KEY:-}" ]; }; }; then
-  _dci_gmodel=$(_dci_litellm_model pi)
+if command -v pi &>/dev/null && _dci_use_litellm pi ANTHROPIC_API_KEY; then
+  _dci_gmodel=$(_dci_litellm_model pi pi)
   if [ -n "$_dci_gmodel" ]; then
     mkdir -p ~/.pi/agent
     printf '{"providers":{"litellm":{"baseUrl":"%s/v1","api":"openai-completions","apiKey":"$LITELLM_API_KEY","models":[{"id":"%s"}]}}}\n' \
@@ -195,17 +230,25 @@ _dci_codex_config() {
 # ─── Codex ───────────────────────────────────────────────────────────────────
 if command -v codex &>/dev/null; then
   _dci_api_key="" _dci_base_url="" _dci_model="" _dci_kind=""
-  if [ -n "${OPENAI_API_KEY:-}" ]; then
+  # Per-harness config takes priority for provider selection
+  _dci_codex_hp=$(_dci_harness_provider codex)
+  if [ "$_dci_codex_hp" = "litellm" ] && $_dci_litellm; then
+    _dci_api_key="$LITELLM_API_KEY"
+    _dci_base_url="${LITELLM_BASE_URL}/v1"; _dci_kind=litellm
+    _dci_model=$(_dci_litellm_model codex codex)
+  elif [ -n "${OPENAI_API_KEY:-}" ] && [ "$_dci_codex_hp" != "litellm" ]; then
     _dci_api_key="$OPENAI_API_KEY"
-    _dci_model="${DEVLET_DEFAULT_MODEL:-o4-mini}"
+    _dci_model=$(_dci_harness_model codex)
+    [ -n "$_dci_model" ] || _dci_model="${DEVLET_DEFAULT_MODEL:-o4-mini}"
   elif [ -n "${LITELLM_API_KEY:-}" ] && [ -n "${LITELLM_BASE_URL:-}" ]; then
     _dci_api_key="$LITELLM_API_KEY"
     _dci_base_url="${LITELLM_BASE_URL}/v1"; _dci_kind=litellm
-    _dci_model=$(_dci_litellm_model codex)
+    _dci_model=$(_dci_litellm_model codex codex)
   elif [ -n "${NVIDIA_API_KEY:-}" ]; then
     _dci_api_key="$NVIDIA_API_KEY"
     _dci_base_url="https://integrate.api.nvidia.com/v1"
-    _dci_model="${DEVLET_DEFAULT_MODEL:-nvidia/llama-3.1-nemotron-ultra-253b-v1}"
+    _dci_model=$(_dci_harness_model codex)
+    [ -n "$_dci_model" ] || _dci_model="${DEVLET_DEFAULT_MODEL:-nvidia/llama-3.1-nemotron-ultra-253b-v1}"
   fi
   if [ -n "$_dci_api_key" ]; then
     echo "$_dci_api_key" | codex login --with-api-key 2>/dev/null || true
@@ -214,15 +257,22 @@ if command -v codex &>/dev/null; then
     mkdir -p ~/.codex
     _dci_codex_config "$_dci_model" "$_dci_base_url" "$_dci_kind" > ~/.codex/config.toml
   fi
-  unset _dci_api_key _dci_base_url _dci_model _dci_kind
+  unset _dci_api_key _dci_base_url _dci_model _dci_kind _dci_codex_hp
 fi
 
 # ─── OpenCode ─────────────────────────────────────────────────────────────────
 if command -v opencode &>/dev/null; then
   mkdir -p ~/.config/opencode
   if [ ! -f ~/.config/opencode/config.json ]; then
-    if [ -n "${LITELLM_BASE_URL:-}" ] && [ -n "${LITELLM_API_KEY:-}" ]; then
-      _dci_m=$(_dci_litellm_model opencode); _dci_m="${_dci_m:-gpt-4o}"
+    _dci_oc_hp=$(_dci_harness_provider opencode)
+    _dci_oc_model=$(_dci_harness_model opencode)
+    if [ "$_dci_oc_hp" = "litellm" ] && [ -n "${LITELLM_BASE_URL:-}" ] && [ -n "${LITELLM_API_KEY:-}" ]; then
+      _dci_m="${_dci_oc_model:-gpt-4o}"
+      printf '{"model":"litellm/%s","provider":{"litellm":{"npm":"@ai-sdk/openai-compatible","name":"LiteLLM","options":{"baseURL":"%s/v1","apiKey":"{env:LITELLM_API_KEY}"},"models":{"%s":{"name":"%s"}}}}}' \
+        "$_dci_m" "$LITELLM_BASE_URL" "$_dci_m" "$_dci_m" > ~/.config/opencode/config.json
+      unset _dci_m
+    elif [ -n "${LITELLM_BASE_URL:-}" ] && [ -n "${LITELLM_API_KEY:-}" ] && [ -z "$_dci_oc_hp" ]; then
+      _dci_m=$(_dci_litellm_model opencode opencode); _dci_m="${_dci_m:-gpt-4o}"
       printf '{"model":"litellm/%s","provider":{"litellm":{"npm":"@ai-sdk/openai-compatible","name":"LiteLLM","options":{"baseURL":"%s/v1","apiKey":"{env:LITELLM_API_KEY}"},"models":{"%s":{"name":"%s"}}}}}' \
         "$_dci_m" "$LITELLM_BASE_URL" "$_dci_m" "$_dci_m" > ~/.config/opencode/config.json
       unset _dci_m
@@ -235,11 +285,12 @@ if command -v opencode &>/dev/null; then
     elif [ -n "${GEMINI_API_KEY:-}" ]; then
       printf '{"model":"google/gemini-2.0-flash"}\n' > ~/.config/opencode/config.json
     elif [ -n "${NVIDIA_API_KEY:-}" ]; then
-      _dci_m="${DEVLET_DEFAULT_MODEL:-nvidia/llama-3.1-nemotron-ultra-253b-v1}"
+      _dci_m="${_dci_oc_model:-${DEVLET_DEFAULT_MODEL:-nvidia/llama-3.1-nemotron-ultra-253b-v1}}"
       printf '{"model":"nvidia/%s","provider":{"nvidia":{"npm":"@ai-sdk/openai-compatible","name":"NVIDIA","options":{"baseURL":"https://integrate.api.nvidia.com/v1","apiKey":"{env:NVIDIA_API_KEY}"},"models":{"%s":{"name":"%s"}}}}}' \
         "$_dci_m" "$_dci_m" "$_dci_m" > ~/.config/opencode/config.json
       unset _dci_m
     fi
+    unset _dci_oc_hp _dci_oc_model
   fi
 fi
 

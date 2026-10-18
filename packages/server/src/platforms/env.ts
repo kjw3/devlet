@@ -103,10 +103,11 @@ export async function buildContainerEnv(config: AgentConfig): Promise<string[]> 
   // 2. Per-agent-type provider + model from ~/.devlet/agent-type-config.yaml
   //    Only injected when not already set by per-agent env overrides.
   const typeConfigVars: string[] = [];
+  let fullTypeConfig: Awaited<ReturnType<typeof loadAgentTypeConfig>> | null = null;
   if (!config.env["DEVLET_AGENT_PROVIDER"] && !config.env["DEVLET_AGENT_MODEL"]) {
     try {
-      const typeConfig = await loadAgentTypeConfig();
-      const agentDefaults = typeConfig.configs[config.type];
+      fullTypeConfig = await loadAgentTypeConfig();
+      const agentDefaults = fullTypeConfig.configs[config.type];
       if (agentDefaults) {
         resolvedProvider = agentDefaults.provider;
         typeConfigVars.push(`DEVLET_AGENT_PROVIDER=${agentDefaults.provider}`);
@@ -123,6 +124,30 @@ export async function buildContainerEnv(config: AgentConfig): Promise<string[]> 
       }
     } catch {
       // Non-fatal
+    }
+  }
+
+  // 2b. Per-harness configs for coding tools inside the container.
+  //     Each coding harness (claude, codex, pi, gemini, opencode) can have its
+  //     own provider+model from the admin panel. This is passed as a compact
+  //     JSON env var so devlet-coding-init.sh can configure each tool with its
+  //     assigned model instead of defaulting to the primary agent's model.
+  //     The primary agent's own type is excluded (it uses DEVLET_AGENT_PROVIDER/MODEL).
+  const HARNESS_TYPES = ["claude-code", "codex", "opencode", "pi", "gemini"] as const;
+  if (!fullTypeConfig) {
+    try { fullTypeConfig = await loadAgentTypeConfig(); } catch { /* non-fatal */ }
+  }
+  if (fullTypeConfig) {
+    const harnessConfig: Record<string, { provider: string; model?: string }> = {};
+    for (const ht of HARNESS_TYPES) {
+      if (ht === config.type) continue; // primary agent is handled separately
+      const hc = fullTypeConfig.configs[ht];
+      if (hc) {
+        harnessConfig[ht] = { provider: hc.provider, ...(hc.model ? { model: hc.model } : {}) };
+      }
+    }
+    if (Object.keys(harnessConfig).length > 0) {
+      typeConfigVars.push(`DEVLET_HARNESS_CONFIG=${JSON.stringify(harnessConfig)}`);
     }
   }
 
