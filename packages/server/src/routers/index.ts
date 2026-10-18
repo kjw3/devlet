@@ -893,26 +893,48 @@ export const appRouter = t.router({
      * writable layer, e.g. packages installed outside the manifest, /tmp, etc.)
      * resets to the image default. Use this to recover a broken agent state or
      * pick up a new image. Data in /workspace and /home/agent is NOT lost.
+     *
+     * Like `hire`, this returns immediately after flipping status to
+     * `provisioning` and runs the rebuild asynchronously. The UI shows the
+     * pulsing `provisioning` badge the moment the click lands (instead of
+     * sitting on a stale `running` status for the whole re-provision), and the
+     * status settles to `running`/`error` when the async work completes.
      */
     rebuild: authProcedure.input(z.string()).mutation(async ({ input }) => {
       const state = await loadAgentState(input);
-      // Swallow stop/remove errors — container may already be gone.
-      await stopAgent(state.platformRef).catch(() => {});
-      await removeAgent(state.platformRef).catch(() => {});
-      if (state.config.platform.type === "portainer") {
-        await removePortainerContainerByName(
-          state.config.platform.endpointId,
-          `devlet-${state.config.id}`
-        ).catch(() => {});
-      }
-      await refreshAgentAccessPorts(state.config);
-      const platformRef = await provisionAgent(state.config);
-      state.platformRef = platformRef;
-      state.status = "running";
-      delete state.error;
-      state.config.lastActiveAt = new Date().toISOString();
-      state.logs.push("Rebuild requested — reprovisioned from image (workspace/home preserved)");
+      // Reflect the in-progress state up front so the UI has immediate feedback.
+      state.status = "provisioning";
+      state.logs.push("Rebuild requested — reprovisioning from image (workspace/home preserved)");
       await saveAgentState(state);
+
+      // Run the rebuild asynchronously so this mutation returns immediately.
+      (async () => {
+        try {
+          // Swallow stop/remove errors — container may already be gone.
+          await stopAgent(state.platformRef).catch(() => {});
+          await removeAgent(state.platformRef).catch(() => {});
+          if (state.config.platform.type === "portainer") {
+            await removePortainerContainerByName(
+              state.config.platform.endpointId,
+              `devlet-${state.config.id}`
+            ).catch(() => {});
+          }
+          await refreshAgentAccessPorts(state.config);
+          const platformRef = await provisionAgent(state.config);
+          state.platformRef = platformRef;
+          state.status = "running";
+          delete state.error;
+          state.config.lastActiveAt = new Date().toISOString();
+          state.logs.push("Rebuild complete — running on fresh image");
+          await saveAgentState(state);
+        } catch (err: unknown) {
+          state.status = "error";
+          state.error = err instanceof Error ? err.message : String(err);
+          state.logs.push(`Rebuild failed: ${state.error}`);
+          await saveAgentState(state);
+        }
+      })();
+
       return sanitizeAgentStateSummary(state);
     }),
 
