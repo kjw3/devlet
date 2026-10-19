@@ -431,8 +431,12 @@ export function configureHermes(opts) {
 
     // Build tuning overrides from env
     const tuningOverrides = {};
-    if (env.HERMES_CONTEXT_TOKENS) {
-      const ctx = parseInt(env.HERMES_CONTEXT_TOKENS, 10);
+    // Precedence: HERMES_CONTEXT_TOKENS override, then LITELLM_CONTEXT_TOKENS.
+    // LITELLM_CONTEXT_TOKENS is forwarded by the server for all agents and lets
+    // the operator pin the window without per-agent env vars.
+    const contextTokens = env.HERMES_CONTEXT_TOKENS || env.LITELLM_CONTEXT_TOKENS;
+    if (contextTokens) {
+      const ctx = parseInt(contextTokens, 10);
       if (!isNaN(ctx) && ctx > 0) {
         tuningOverrides.model = { context_tokens: ctx };
       }

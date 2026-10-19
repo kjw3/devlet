@@ -60,6 +60,12 @@ const trustedProxies = (process.env.OPENCLAW_TRUSTED_PROXIES || '')
   .filter(Boolean);
 const enableInsecureControlUiAuth = /^(1|true|yes|on)$/i.test(process.env.DEVLET_OPENCLAW_AUTO_PAIR || '');
 
+// Context window: use LITELLM_CONTEXT_TOKENS override when the operator knows
+// the real window of the model being served (e.g. a small model on a local
+// endpoint). Falls back to 200k which covers most frontier models.
+const contextWindow = parseInt(process.env.LITELLM_CONTEXT_TOKENS || process.env.OPENCLAW_CONTEXT_TOKENS || '200000', 10) || 200000;
+const maxTokens = parseInt(process.env.LITELLM_MAX_OUTPUT_TOKENS || process.env.OPENCLAW_MAX_TOKENS || '8192', 10) || 8192;
+
 function buildModelRegistry() {
   if (provider === 'nvidia' && process.env.NVIDIA_API_KEY) {
     return {
@@ -75,8 +81,8 @@ function buildModelRegistry() {
               name: model,
               input: ['text', 'image'],
               cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-              contextWindow: 200000,
-              maxTokens: 8192,
+              contextWindow,
+              maxTokens,
             },
           ],
         },
@@ -98,8 +104,8 @@ function buildModelRegistry() {
               name: model,
               input: ['text', 'image'],
               cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-              contextWindow: 200000,
-              maxTokens: 8192,
+              contextWindow,
+              maxTokens,
             },
           ],
         },
