@@ -51,7 +51,7 @@ import { countGpuClaims, pickDefaultGpuDevices, resolveHostGpuDevices, validateG
 import { probeKomodo, probeKomodoCached } from "../platforms/komodo.js";
 import { isServerOnTailnet } from "../tailscale/node.js";
 import { findAgentDevice, probeTailscale, removeAgentDevices, isTailscaleEnabledFor } from "../tailscale/client.js";
-import { provisionAgent, stopAgent, startAgent, removeAgent, removeAgentVolumes, getAgentLogs, removeOrphanedProvision } from "../platforms/dispatch.js";
+import { provisionAgent, stopAgent, startAgent, removeAgent, removeAgentVolumes, getAgentLogs, getAgentRunning, removeOrphanedProvision } from "../platforms/dispatch.js";
 import { listAgentStates, loadAgentState, saveAgentState, deleteAgentState } from "../agents/state.js";
 import { sanitizeEnv, sanitizeAgentStateSummary } from "../agents/sanitize.js";
 import {
@@ -525,6 +525,15 @@ async function chooseRecoveryPlatform(
   return normalizePlatformTarget(decision.placement);
 }
 
+/**
+ * Structural equality for platform targets. Both sides are produced by
+ * normalizePlatformTarget (or the scheduler's same-shape targets), so
+ * JSON comparison is stable.
+ */
+function samePlatformTarget(a: PlatformTarget, b: PlatformTarget): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export const appRouter = t.router({
   auth: t.router({
     // Lightweight session check for the web AuthGate: authentication middleware
@@ -938,34 +947,111 @@ export const appRouter = t.router({
       return sanitizeAgentStateSummary(state);
     }),
 
+    /**
+     * Recover an agent stuck in `error` state — most commonly a persistent
+     * agent whose node went offline (power failure).
+     *
+     * Async like `rebuild`: flips to `provisioning` up front so the UI shows
+     * progress immediately, then runs the recovery in the background so slow
+     * platform probing / VM cloning can't block (or time out) the request.
+     *
+     * Order of operations matters:
+     *   1. Decide the recovery placement FIRST — if there is no capacity
+     *      anywhere, we fail before touching the old runtime.
+     *   2. Try the cheap paths: if the old runtime is already running (the
+     *      node came back and the container survived), just clear the error.
+     *      If it exists but is stopped, start it in place.
+     *   3. Only then destroy and re-provision on the chosen platform.
+     *
+     * Any failure is persisted as an `error` status with a specific message
+     * and a log line, so the UI always shows why recovery didn't work.
+     */
     recover: authProcedure
       .input(RecoverAgentInputSchema)
       .mutation(async ({ input }) => {
         const state = await loadAgentState(input.agentId);
-        const oldPlatform = state.config.platform;
-        const oldPlatformRef = state.platformRef;
-
-        await stopAgent(state.platformRef).catch(() => {});
-        await removeAgent(state.platformRef).catch(() => {});
-        if (state.config.platform.type === "portainer") {
-          await removePortainerContainerByName(
-            state.config.platform.endpointId,
-            `devlet-${state.config.id}`
-          ).catch(() => {});
-        }
-
-        state.config.platform = await chooseRecoveryPlatform(state, input.platformOverride);
-        await refreshAgentAccessPorts(state.config);
-
-        const platformRef = await provisionAgent(state.config);
-        state.platformRef = platformRef;
-        state.status = "running";
-        delete state.error;
-        state.config.lastActiveAt = new Date().toISOString();
-        state.logs.push(
-          `Recovery requested — moved from ${oldPlatform.type}:${oldPlatformRef} to ${state.config.platform.type}:${platformRef}`
-        );
+        state.status = "provisioning";
+        state.logs.push("Recovery requested — checking placement and runtime");
         await saveAgentState(state);
+
+        (async () => {
+          try {
+            const oldPlatform = state.config.platform;
+            const oldPlatformRef = state.platformRef;
+
+            // 1. Decide placement before destroying anything.
+            const target = await chooseRecoveryPlatform(state, input.platformOverride);
+            state.config.platform = target;
+
+            // 2. Cheap paths when the recovery target is where the agent
+            //    already lives.
+            if (samePlatformTarget(oldPlatform, target)) {
+              const running = await getAgentRunning(oldPlatformRef).catch(() => null);
+              if (running === true) {
+                state.platformRef = oldPlatformRef;
+                state.status = "running";
+                delete state.error;
+                state.config.lastActiveAt = new Date().toISOString();
+                state.logs.push("[devlet] recovery — runtime already running; error cleared");
+                await saveAgentState(state);
+                return;
+              }
+              if (running === false) {
+                try {
+                  await startAgent(oldPlatformRef);
+                  const after = await getAgentRunning(oldPlatformRef).catch(() => null);
+                  if (after === true) {
+                    state.platformRef = oldPlatformRef;
+                    state.status = "running";
+                    delete state.error;
+                    state.config.lastActiveAt = new Date().toISOString();
+                    state.logs.push("[devlet] recovery — started existing runtime in place");
+                    await saveAgentState(state);
+                    return;
+                  }
+                } catch {
+                  // fall through to full re-provision
+                }
+              }
+            }
+
+            // 3. Full re-provision on the chosen platform.
+            await stopAgent(oldPlatformRef).catch(() => {});
+            await removeAgent(oldPlatformRef).catch(() => {});
+            if (oldPlatform.type === "portainer") {
+              await removePortainerContainerByName(
+                oldPlatform.endpointId,
+                `devlet-${state.config.id}`
+              ).catch(() => {});
+            }
+            await refreshAgentAccessPorts(state.config);
+
+            const platformRef = await provisionAgent(state.config);
+            state.platformRef = platformRef;
+            state.status = "running";
+            delete state.error;
+            state.config.lastActiveAt = new Date().toISOString();
+            state.logs.push(
+              `Recovery complete — ${oldPlatform.type}:${oldPlatformRef} → ${state.config.platform.type}:${platformRef}`
+            );
+            await saveAgentState(state);
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`[recover] ${input.agentId}:`, message);
+            state.status = "error";
+            // TRPCError messages come from our own scheduler/placement checks
+            // (safe to surface). Platform/provisioning exceptions can embed
+            // bootstrap scripts or credentials, so keep those generic (see
+            // provision-recovery.ts).
+            state.error =
+              err instanceof TRPCError
+                ? `Recovery failed: ${err.message}`
+                : "Recovery failed — the runtime could not be reprovisioned. Check node capacity and try again.";
+            state.logs.push(`[devlet] ${state.error}`);
+            await saveAgentState(state).catch(() => {});
+          }
+        })();
+
         return sanitizeAgentStateSummary(state);
       }),
 

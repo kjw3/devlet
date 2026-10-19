@@ -218,21 +218,24 @@ export async function getAgentLogs(
   if (parsed.type === "pending") return fallback;
   if (parsed.type === "docker") {
     try {
-      return await getContainerLogs(parsed.containerId);
+      const logs = await getContainerLogs(parsed.containerId);
+      return logs.length > 0 ? logs : fallback;
     } catch {
       return fallback; // container already removed
     }
   }
   if (parsed.type === "portainer") {
     try {
-      return await getPortainerContainerLogs(parsed.endpointId, parsed.containerId);
+      const logs = await getPortainerContainerLogs(parsed.endpointId, parsed.containerId);
+      return logs.length > 0 ? logs : fallback;
     } catch {
       return fallback;
     }
   }
   if (parsed.type === "komodo") {
     try {
-      return await getKomodoContainerLogs(parsed.serverId, parsed.deploymentName);
+      const logs = await getKomodoContainerLogs(parsed.serverId, parsed.deploymentName);
+      return logs.length > 0 ? logs : fallback;
     } catch {
       return fallback;
     }

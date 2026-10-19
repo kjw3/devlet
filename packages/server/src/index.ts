@@ -24,6 +24,7 @@ import {
 import { config } from "./config.js";
 import { selectUpstream, startServerTailnetNode } from "./tailscale/node.js";
 import { recoverInterruptedProvisions } from "./agents/provision-recovery.js";
+import { reconcilePersistentAgent } from "./agents/runtime-reconcile.js";
 import { recordAgentEvent, type AgentEventType } from "./agents/agent-events.js";
 import { bootstrapSshKeysFromEnv } from "./ssh/keyStore.js";
 
@@ -315,17 +316,19 @@ async function syncAgentStatuses(): Promise<void> {
         .map(async (state) => {
           try {
             const running = await getAgentRunning(state.platformRef);
+
+            // Persistent agents self-heal: running again → clear a stale
+            // error; stopped or missing → reprovision in place (see
+            // runtime-reconcile.ts).
+            if (state.config.persistent && running !== null) {
+              await reconcilePersistentAgent(state, running, {
+                provision: () => provisionAgent(state.config),
+                save: (s) => saveAgentState(s),
+              });
+              return;
+            }
+
             if (running === false) {
-              if (state.config.persistent) {
-                const platformRef = await provisionAgent(state.config);
-                state.platformRef = platformRef;
-                state.status = "running";
-                delete state.error;
-                state.config.lastActiveAt = new Date().toISOString();
-                state.logs.push("[devlet] persistent agent was stopped or missing — reprovisioned");
-                await saveAgentState(state);
-                return;
-              }
 
               if (state.config.platform.type === "proxmox") {
                 // Keep task output before powering down the guest. Retain its
@@ -398,6 +401,9 @@ async function syncAgentStatuses(): Promise<void> {
   }
 }
 
+// Run once at startup too — otherwise a node that died while the server was
+// down only gets reconciled up to 15s after boot.
+void syncAgentStatuses();
 setInterval(syncAgentStatuses, 15_000);
 
 // ─── Background: reconcile orphaned Komodo deployments ───────────────────────

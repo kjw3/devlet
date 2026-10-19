@@ -252,8 +252,9 @@ export async function getKomodoContainerLogs(
 }
 
 /**
- * true if the deployment's container is running, false if it has exited,
- * null if it cannot be found or Komodo is unreachable.
+ * true if the deployment's container is running, false if it has exited OR the
+ * deployment no longer exists (a missing runtime can be reprovisioned — same
+ * semantics as Proxmox's 404→false), null if Komodo itself is unreachable.
  */
 export async function getKomodoContainerRunning(
   _serverId: string,
@@ -263,7 +264,7 @@ export async function getKomodoContainerRunning(
   try {
     const list = await komodo.read("ListDeployments", { query: {} });
     const found = list.find((d) => d.name === deploymentName);
-    if (!found) return null;
+    if (!found) return false;
     return found.info?.state === "running";
   } catch {
     return null;
