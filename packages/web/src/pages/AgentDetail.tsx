@@ -460,13 +460,23 @@ export function AgentDetail() {
         </div>
         <div className="flex gap-2">
           {status === "error" && config.persistent && (
-            <button
-              className="btn-ghost"
-              disabled={recoverMutation.isPending}
-              onClick={() => recoverMutation.mutate({ agentId: config.id })}
-            >
-              {recoverMutation.isPending ? "recovering..." : "recover"}
-            </button>
+            <>
+              <button
+                className="btn-ghost"
+                disabled={recoverMutation.isPending}
+                onClick={() => recoverMutation.mutate({ agentId: config.id })}
+              >
+                {recoverMutation.isPending ? "recovering..." : "recover"}
+              </button>
+              {recoverMutation.error && (
+                <span
+                  className="self-center max-w-[320px] truncate text-[11px] text-accent-red"
+                  title={recoverMutation.error.message}
+                >
+                  {recoverMutation.error.message}
+                </span>
+              )}
+            </>
           )}
           {status === "running" && (
             <>

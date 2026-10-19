@@ -73,8 +73,13 @@ export function Dashboard() {
   const startMutation = trpc.agents.start.useMutation({
     onSuccess: () => void utils.agents.list.invalidate(),
   });
+  const [recoverError, setRecoverError] = useState<string | null>(null);
   const recoverMutation = trpc.agents.recover.useMutation({
-    onSuccess: () => void utils.agents.list.invalidate(),
+    onSuccess: () => {
+      setRecoverError(null);
+      void utils.agents.list.invalidate();
+    },
+    onError: (err) => setRecoverError(err.message),
   });
 
   // Each filter's counts respect the other filter, so the chips always add up to what is shown.
@@ -198,6 +203,13 @@ export function Dashboard() {
             <button className="btn-ghost" disabled={isFetching} onClick={() => void refetch()}>
               {isFetching ? "retrying…" : "retry now"}
             </button>
+          </div>
+        )}
+
+        {recoverError && (
+          <div role="alert" className="mb-4 px-3 py-2 rounded-sm border border-red-500/30 bg-red-500/5 text-[12px] text-red-300 flex items-center gap-3">
+            <span>Recover failed — {recoverError}</span>
+            <button className="btn-ghost" onClick={() => setRecoverError(null)}>dismiss</button>
           </div>
         )}
 
