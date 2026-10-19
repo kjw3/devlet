@@ -210,6 +210,10 @@ failed), the assignment falls back to "all".
 
 Selections are re-validated against fresh probe data at hire time; a stale UI
 selection fails with `PRECONDITION_FAILED` instead of deploying a broken agent.
+Selected GPUs are part of the persisted agent state and survive load/save,
+rebuild, recovery, and persistent-agent self-heal — a reprovision keeps the
+exact selection (and fails loudly if the GPU is gone) instead of silently
+falling back to all GPUs.
 
 ## Limits / follow-ups
 

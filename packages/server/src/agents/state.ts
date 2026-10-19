@@ -78,6 +78,7 @@ function normalizeGpu(gpu: {
   required: boolean;
   memoryMb?: number;
   passthroughMode?: "container" | "vm";
+  devices?: string[];
 }): GpuRequirements {
   return {
     required: gpu.required,
@@ -85,6 +86,13 @@ function normalizeGpu(gpu: {
     ...(gpu.passthroughMode !== undefined
       ? { passthroughMode: gpu.passthroughMode }
       : {}),
+    // Specific GPUs picked in the hire wizard (GPU UUIDs on container
+    // platforms, PCI ids on Proxmox). Dropping these would silently broaden a
+    // restricted assignment to every GPU of the host on the next load+save
+    // (recovery, rebuild, reconciliation). An empty array is equivalent to
+    // "all GPUs" (see gpuRunArg/gpuDeviceRequests), so it is dropped like the
+    // hire-path normalizer does.
+    ...(gpu.devices?.length ? { devices: gpu.devices } : {}),
   };
 }
 
@@ -172,6 +180,7 @@ function normalizeAgentConfig(config: {
     required: boolean;
     memoryMb?: number;
     passthroughMode?: "container" | "vm";
+    devices?: string[];
   };
   env: Record<string, string>;
   persistent: boolean;
