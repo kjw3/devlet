@@ -81,9 +81,15 @@ console.log('[devlet] /workspace/AGENTS.md written');
 JSEOF
 
 # ─── Run headless (single mission) or interactive ──────────────────────────
+# The role + mission are already persisted to /workspace/AGENTS.md (auto-injected
+# into every Hermes session) and the persona lives in $HERMES_HOME/SOUL.md.
+# We still seed the mission as the first turn with -q so first boot immediately
+# executes the mission. On the non-TTY container stdio, `hermes chat -q` answers
+# the query and exits automatically, then the entrypoint's idle tail keeps the
+# agent persistent for follow-up turns over ttyd/SSH.
 if [ -n "$AGENT_MISSION" ]; then
   echo "[devlet] hermes: headless mission mode"
-  exec hermes chat --yolo --mission "$AGENT_MISSION"
+  exec hermes chat --yolo -q "$AGENT_MISSION"
 else
   echo "[devlet] hermes: interactive mode"
   exec hermes chat
