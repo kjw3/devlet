@@ -18,6 +18,7 @@ set -e
 AGENT_NAME="${DEVLET_AGENT_NAME:-Hermes Agent}"
 AGENT_ROLE="${DEVLET_AGENT_ROLE:-Autonomous AI agent}"
 AGENT_MISSION="${DEVLET_AGENT_MISSION:-}"
+PERSISTENT="${DEVLET_AGENT_PERSISTENT:-false}"
 
 # ─── Resolve provider/model ─────────────────────────────────────────────────
 # Provider priority: explicit env > native key > LiteLLM.
@@ -83,13 +84,19 @@ JSEOF
 # ─── Run headless (single mission) or interactive ──────────────────────────
 # The role + mission are already persisted to /workspace/AGENTS.md (auto-injected
 # into every Hermes session) and the persona lives in $HERMES_HOME/SOUL.md.
-# We still seed the mission as the first turn with -q so first boot immediately
-# executes the mission. On the non-TTY container stdio, `hermes chat -q` answers
-# the query and exits automatically, then the entrypoint's idle tail keeps the
-# agent persistent for follow-up turns over ttyd/SSH.
+# We seed the mission as the first turn with -q so first boot immediately
+# executes the mission. On non-TTY container stdio, `hermes chat -q` answers
+# the query and exits. For persistent agents, we then idle to keep the
+# container alive for follow-up turns over ttyd/SSH.
 if [ -n "$AGENT_MISSION" ]; then
   echo "[devlet] hermes: headless mission mode"
-  exec hermes chat --yolo -q "$AGENT_MISSION"
+  # Run WITHOUT exec so the shell survives hermes exiting.
+  hermes chat --yolo -q "$AGENT_MISSION"
+  # After the mission turn completes, keep the container alive if persistent.
+  if [ "$PERSISTENT" = "true" ]; then
+    echo "[devlet] hermes: mission complete — idling (persistent=true)"
+    exec tail -f /dev/null
+  fi
 else
   echo "[devlet] hermes: interactive mode"
   exec hermes chat
