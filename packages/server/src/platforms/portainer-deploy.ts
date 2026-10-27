@@ -1,3 +1,4 @@
+import { exitDetails } from "./exit-details.js";
 import type { AgentConfig } from "@devlet/shared";
 import { config as appConfig } from "../config.js";
 import { agentImageFor, parseDockerLogBuffer } from "./docker.js";
@@ -340,4 +341,11 @@ export async function getPortainerContainerLogs(
   }
   const buffer = Buffer.from(await res.arrayBuffer());
   return parseDockerLogBuffer(buffer);
+}
+
+export async function getPortainerExitDetails(endpoint: number, id: string) {
+  const res = await fetch(proxyUrl(endpoint, `/containers/${id}/json`), { headers: headers() });
+  if (!res.ok) throw new Error(`Runtime inspection failed: HTTP ${res.status}`);
+  const data = await res.json() as { State?: Parameters<typeof exitDetails>[0] };
+  return exitDetails(data.State);
 }

@@ -3,6 +3,7 @@ import { withTailscaleEnv } from "../tailscale/client.js";
 import {
   createAgentContainer,
   getContainerLogs,
+  getContainerExitDetails,
   getContainerRunning,
   removeContainer,
   removeAgentVolumes as removeDockerVolumes,
@@ -12,6 +13,7 @@ import {
 import {
   createPortainerContainer,
   getPortainerContainerLogs,
+  getPortainerExitDetails,
   getPortainerContainerRunning,
   removePortainerContainer,
   removePortainerVolumes,
@@ -21,6 +23,7 @@ import {
 import {
   createKomodoContainer,
   getKomodoContainerLogs,
+  getKomodoExitDetails,
   getKomodoContainerRunning,
   removeKomodoContainer,
   removeKomodoVolumes,
@@ -137,7 +140,7 @@ export async function stopAgent(platformRef: string): Promise<void> {
  */
 export async function startAgent(platformRef: string): Promise<void> {
   const parsed = parsePlatformRef(platformRef);
-  if (parsed.type === "pending") return;
+  if (parsed.type === "pending") throw new Error("Agent has no runtime; provisioning required");
   if (parsed.type === "docker") return startContainer(parsed.containerId);
   if (parsed.type === "portainer") return startPortainerContainer(parsed.endpointId, parsed.containerId);
   if (parsed.type === "komodo") return startKomodoContainer(parsed.serverId, parsed.deploymentName);
@@ -212,7 +215,8 @@ export async function getAgentRunning(platformRef: string): Promise<boolean | nu
 
 export async function getAgentLogs(
   platformRef: string,
-  fallback: string[]
+  fallback: string[],
+  strict = false
 ): Promise<string[]> {
   const parsed = parsePlatformRef(platformRef);
   if (parsed.type === "pending") return fallback;
@@ -220,7 +224,8 @@ export async function getAgentLogs(
     try {
       const logs = await getContainerLogs(parsed.containerId);
       return logs.length > 0 ? logs : fallback;
-    } catch {
+    } catch (error) {
+      if (strict) throw error;
       return fallback; // container already removed
     }
   }
@@ -228,7 +233,8 @@ export async function getAgentLogs(
     try {
       const logs = await getPortainerContainerLogs(parsed.endpointId, parsed.containerId);
       return logs.length > 0 ? logs : fallback;
-    } catch {
+    } catch (error) {
+      if (strict) throw error;
       return fallback;
     }
   }
@@ -236,7 +242,8 @@ export async function getAgentLogs(
     try {
       const logs = await getKomodoContainerLogs(parsed.serverId, parsed.deploymentName);
       return logs.length > 0 ? logs : fallback;
-    } catch {
+    } catch (error) {
+      if (strict) throw error;
       return fallback;
     }
   }
@@ -244,9 +251,19 @@ export async function getAgentLogs(
     try {
       const logs = await getProxmoxGuestLogs(parsed.node, parsed.vmType, Number(parsed.vmId));
       return logs.length > 0 ? logs : fallback;
-    } catch {
+    } catch (error) {
+      if (strict) throw error;
       return fallback;
     }
   }
   return fallback;
+}
+
+/** Only runtime state is retained; never inspect env, commands, or mounts. */
+export async function getAgentExitDetails(platformRef: string): Promise<unknown> {
+  const parsed = parsePlatformRef(platformRef);
+  if (parsed.type === "docker") return getContainerExitDetails(parsed.containerId);
+  if (parsed.type === "komodo") return getKomodoExitDetails(parsed.serverId, parsed.deploymentName);
+  if (parsed.type === "portainer") return getPortainerExitDetails(parsed.endpointId, parsed.containerId);
+  return { platform: parsed.type, note: "Guest status only; container exit details unavailable" };
 }

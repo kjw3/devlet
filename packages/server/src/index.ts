@@ -1,11 +1,12 @@
 import "./platforms/localstorage-shim.js"; // MUST be first — installs localStorage before any komodo_client import is evaluated
+import { retainTermination } from "./agents/termination.js";
 import { Readable } from "node:stream";
 import httpProxy from "http-proxy";
 import cors from "@fastify/cors";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "./routers/index.js";
-import { getAgentRunning, getAgentLogs, stopAgent, provisionAgent, removeAgent } from "./platforms/dispatch.js";
+import { getAgentRunning, getAgentLogs, getAgentExitDetails, stopAgent, provisionAgent, removeAgent } from "./platforms/dispatch.js";
 import {
   listOrphanedKomodoDeployments,
   getOrphanedKomodoDeploymentLog,
@@ -330,21 +331,13 @@ async function syncAgentStatuses(): Promise<void> {
 
             if (running === false) {
 
-              if (state.config.platform.type === "proxmox") {
-                // Keep task output before powering down the guest. Retain its
-                // disk/workspace for inspection; explicit delete/fire removes it.
-                const logs = await getAgentLogs(state.platformRef, []);
-                if (logs.length) state.logs.push(...logs);
-                await stopAgent(state.platformRef);
-              } else if (state.platformRef !== "pending") {
-                // Non-persistent agent exited: tear down the now-dead container /
-                // deployment so it doesn't linger as an orphan (e.g. an exited
-                // Komodo deployment). Proxmox is handled above (disk retained).
-                await removeAgent(state.platformRef).catch(() => {});
-              }
-              state.status = "terminated";
-              state.logs.push("[devlet] container exited — marked terminated");
-              await saveAgentState(state);
+              await retainTermination(state, {
+                logs: () => getAgentLogs(state.platformRef, [], true),
+                details: () => getAgentExitDetails(state.platformRef),
+                save: saveAgentState,
+                cleanup: () => state.config.platform.type === "proxmox"
+                  ? stopAgent(state.platformRef) : removeAgent(state.platformRef),
+              });
               return;
             }
 

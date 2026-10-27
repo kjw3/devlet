@@ -37,6 +37,7 @@ _dci_use_litellm() {  # $1 = agent type, $2 = native key var name (e.g. ANTHROPI
   local hp
   hp=$(_dci_harness_provider "$1")
   [ "$hp" = "litellm" ] && return 0
+  [ -n "$hp" ] && return 1
   # Existing auto-detection: primary provider is litellm, or no provider set and
   # the tool's native key is missing.
   local native_key="${!2:-}"
@@ -201,8 +202,6 @@ if command -v pi &>/dev/null && _dci_use_litellm pi ANTHROPIC_API_KEY; then
   _dci_gmodel=$(_dci_litellm_model pi pi)
   if [ -n "$_dci_gmodel" ]; then
     mkdir -p ~/.pi/agent
-    printf '{"providers":{"litellm":{"baseUrl":"%s/v1","api":"openai-completions","apiKey":"$LITELLM_API_KEY","models":[{"id":"%s"}]}}}\n' \
-      "$_dci_litellm_base" "$_dci_gmodel" > ~/.pi/agent/models.json
     _dci_wrap pi "$(_dci_kv LITELLM_API_KEY "$LITELLM_API_KEY")" "--provider litellm --model $(printf '%q' "$_dci_gmodel")"
     echo "[devlet] litellm: pi model=$_dci_gmodel"
   fi
@@ -293,6 +292,26 @@ if command -v opencode &>/dev/null; then
     unset _dci_oc_hp _dci_oc_model
   fi
 fi
+
+# Apply context defaults only to tools using the gateway. Unknown models require
+# gateway metadata. Existing settings are merged, never replaced by this helper.
+for _dci_tool in pi codex opencode gemini claude-code; do
+  case "$_dci_tool" in
+    codex) _dci_native=OPENAI_API_KEY ;;
+    gemini) _dci_native=GEMINI_API_KEY ;;
+    *) _dci_native=ANTHROPIC_API_KEY ;;
+  esac
+  if _dci_use_litellm "$_dci_tool" "$_dci_native"; then
+    _dci_cm=$(_dci_litellm_model "$_dci_tool" "$_dci_tool")
+    [ -n "$_dci_cm" ] || continue
+    _dci_cl=$(_dci_litellm_limits "$_dci_cm")
+    _dci_cc="${_dci_cl%% *}"; _dci_co="${_dci_cl##* }"
+    [ -n "${LITELLM_CONTEXT_TOKENS:-}" ] && _dci_cc="$LITELLM_CONTEXT_TOKENS"
+    python3 /usr/local/bin/devlet-context-config "$_dci_tool" "$_dci_cm" "$_dci_cc" "$_dci_co" \
+      || echo "[devlet] context: $_dci_tool configuration failed; inspect existing config"
+  fi
+done
+unset _dci_tool _dci_native _dci_cm _dci_cl _dci_cc _dci_co
 
 unset _dci_gmodel  # _dci_models + _dci_litellm_model stay for the entrypoint's exec phase
 

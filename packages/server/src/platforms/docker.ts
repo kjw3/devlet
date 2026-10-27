@@ -1,3 +1,4 @@
+import { exitDetails } from "./exit-details.js";
 import Docker from "dockerode";
 import { dockerGpuCount, gpuDeviceRequests, parseNvidiaInventory } from "./hardware.js";
 import fs from "fs";
@@ -493,4 +494,8 @@ export async function getContainerLogs(containerId: string): Promise<string[]> {
   }) as Buffer;
 
   return parseDockerLogBuffer(raw);
+}
+
+export async function getContainerExitDetails(id: string) {
+  return exitDetails((await createDocker().getContainer(id).inspect()).State);
 }

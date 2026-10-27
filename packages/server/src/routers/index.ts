@@ -1,3 +1,4 @@
+import { provisioningError } from "../agents/termination.js";
 import { initTRPC, TRPCError } from "@trpc/server";
 import {
   scheduleAgent,
@@ -789,7 +790,7 @@ export const appRouter = t.router({
           })
           .catch(async (err: unknown) => {
             state.status = "error";
-            state.error = err instanceof Error ? err.message : String(err);
+            state.error = provisioningError(err, state.config.env);
             state.logs.push(`Provisioning failed: ${state.error}`);
             await saveAgentState(state);
           });
@@ -938,7 +939,7 @@ export const appRouter = t.router({
           await saveAgentState(state);
         } catch (err: unknown) {
           state.status = "error";
-          state.error = err instanceof Error ? err.message : String(err);
+          state.error = provisioningError(err, state.config.env);
           state.logs.push(`Rebuild failed: ${state.error}`);
           await saveAgentState(state);
         }
@@ -1057,7 +1058,7 @@ export const appRouter = t.router({
 
     logs: authProcedure.input(z.string()).query(async ({ input }) => {
       const state = await loadAgentState(input);
-      return getAgentLogs(state.platformRef, state.logs);
+      return state.status === "terminated" ? state.logs : getAgentLogs(state.platformRef, state.logs);
     }),
 
     updateMission: authProcedure

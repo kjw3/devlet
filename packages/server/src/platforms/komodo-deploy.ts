@@ -1,3 +1,4 @@
+import { exitDetails } from "./exit-details.js";
 import { Types } from "komodo_client";
 import type { AgentConfig } from "@devlet/shared";
 import { agentImageFor } from "./docker.js";
@@ -247,7 +248,7 @@ export async function getKomodoContainerLogs(
 ): Promise<string[]> {
   const komodo = client();
   const log = await komodo.read("GetDeploymentLog", { deployment: deploymentName, tail });
-  const text = typeof log === "string" ? log : (log?.stdout ?? "");
+  const text = typeof log === "string" ? log : [log?.stdout, log?.stderr].filter(Boolean).join("\n");
   return text.split("\n").filter((line) => line.length > 0);
 }
 
@@ -349,4 +350,8 @@ export async function removeOrphanedKomodoDeployment(deploymentName: string): Pr
   } catch {
     // Tailscale not configured / offline — nothing to clean up.
   }
+}
+
+export async function getKomodoExitDetails(server: string, container: string) {
+  return exitDetails((await client().read("InspectContainer", { server, container })).State);
 }

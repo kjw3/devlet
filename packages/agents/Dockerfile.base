@@ -36,7 +36,7 @@ ARG TAILSCALE_SHA256_ARM64=9dd1e6a592a014bbaea0103167ffe299adeda4ba14e078ce9c289
 ARG CLAUDE_CODE_VERSION=2.1.302
 ARG CODEX_VERSION=0.163.0
 ARG OPENCODE_VERSION=1.19.3
-ARG PI_VERSION=1.3.0
+ARG PI_VERSION=1.4.0
 ARG GEMINI_VERSION=0.64.0
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
@@ -138,6 +138,7 @@ ENV DEVLET_AGENT_TYPE=claude-code
 COPY packages/agents/entrypoint.base.sh /entrypoint.sh
 COPY packages/agents/devlet-terminal.sh /usr/local/bin/devlet-terminal
 COPY packages/agents/devlet-ssh.sh /usr/local/bin/devlet-ssh
+COPY packages/agents/devlet-context-config.py /usr/local/bin/devlet-context-config
 COPY packages/agents/devlet-coding-init.sh /usr/local/bin/devlet-coding-init
 COPY packages/agents/devlet-tailscale.sh /usr/local/bin/devlet-tailscale
 COPY packages/agents/devlet-services.sh /usr/local/bin/devlet-services
