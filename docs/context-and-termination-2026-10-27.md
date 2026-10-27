@@ -1,6 +1,6 @@
 # Context defaults and retained termination diagnostics
 
-Implemented October 27, 2026. Local changes and a local test image only; no registry publication, production redeploy, or existing agent restart.
+Implemented October 27, 2026. Production rollout is recorded below; existing agent containers were not restarted.
 
 ## Why
 
@@ -73,3 +73,15 @@ The smoke test generates all five configurations and runs the installed harness 
 - [Gemini 0.64.0 token limits](https://github.com/google-gemini/gemini-cli/blob/v0.64.0/packages/core/src/core/tokenLimits.ts)
 - [Gemini 0.64.0 model configuration](https://github.com/google-gemini/gemini-cli/blob/v0.64.0/packages/core/src/services/modelConfigService.ts)
 - [Claude Code context and compaction](https://code.claude.com/docs/en/model-config#context-window-and-auto-compaction)
+
+## Production rollout
+
+Implementation commit: `f61a5296a86fc8710c71155ef74b0e9464c7f14f`, pushed to main. Validation passed: 90 server tests, 5 context tests, TypeScript checking, shell syntax and whitespace checks, plus the isolated local-image smoke test.
+
+The server image published for both AMD64 and ARM64. Before deployment, the SHA-tagged AMD64 server image was pulled on sbx4 and checked against latest; its OCI revision matched the implementation commit. The managed compose SHA-256 matched the repository (`cfa31fc099846c5c5d709902f110f6b1f6760296bf135d0e591203bb2ee6bcc2`), auto-pull was enabled, no image overrides were present, and no agents were provisioning.
+
+Komodo DeployStack operation `6ae0b889dff6d841833081d7` completed successfully October 27 at approximately 10:43 a.m. EDT. The server runs revision `f61a5296a86fc8710c71155ef74b0e9464c7f14f`; the unchanged web image was retained. Server health and the web root returned HTTP 200. All five saved agent statuses matched the pre-deployment snapshot, including the three running persistent agents. Authenticated saved-log queries for both originally investigated terminated agents succeeded. No historical output already deleted was reconstructed.
+
+Rollback material on sbx4: `/var/backups/devlet/pre-f61a529-20261027.tgz`, `/var/backups/devlet/pre-f61a529-images.txt`, and the local Docker tag `devlet-server:rollback-f61a529`. A protected stack-configuration and agent-status snapshot is also stored under the Devlet state volume's `backups/pre-f61a529-20261027/` directory. Backups contain private configuration and must stay protected.
+
+The base agent image published successfully for AMD64 and ARM64 in [publication run 40523248709](https://github.com/kjw3/devlet/actions/runs/40523248709). Its SHA-tagged AMD64 image was pulled and smoke-tested on sbx4 with external networking disabled and dummy credentials only. The OCI revision matched the implementation commit. All five harness launchers reported the pinned versions; all five context configurations were generated; an actual Pi request to the loopback mock sent `reasoning_effort=none` with an 8,192-token cap and received an answer. Existing agents were not restarted. Derived GPU/Hermes/Moltis/OpenClaw image jobs were still running when the application/base-image rollout verification finished; those jobs do not require another app-stack deployment.
