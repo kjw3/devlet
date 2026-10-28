@@ -228,3 +228,34 @@ falling back to all GPUs.
   (sm_61) support must be checked before bumping torch/CUDA — recent
   toolchains keep dropping old architectures (CUDA 12.4 + torch 2.4 is the
   validated floor).
+
+## Tailscale SSH and runtime GPU groups
+
+GPU runtimes can add supplementary numeric groups to the container process
+without adding those memberships to `/etc/group`. With unprivileged Tailscale
+SSH, authentication then succeeds but starting a shell or command fails with
+`operation not permitted`: Tailscale cannot change the process groups to match
+the user database. The separate OpenSSH endpoint can still work.
+
+Before starting Tailscale SSH, the shared `devlet-tailscale` startup runs the
+root-owned `devlet-sync-groups` helper through scoped sudo. It reads the startup
+process's actual groups from `/proc`, checks that process belongs to `agent`,
+creates names for unknown numeric groups, and appends the existing memberships
+to the user database. It preserves GPU groups, other group members, and the
+unprivileged agent/daemon execution model. Repeated startup is a no-op once
+memberships match. If synchronization fails, startup logs the error and disables
+Tailscale SSH while retaining tailnet networking and served endpoints.
+
+Rebuild the base image and its derived GPU/agent images, then recreate affected
+containers with the updated images. A plain restart of an old image does not
+install the helper. Do not remove GPU groups or grant the container extra
+capabilities to work around this failure.
+
+Validation: `python3 -B packages/agents/sync-groups.test.py` covers runtime group
+parsing, process ownership, unknown GIDs, preservation of existing members, and
+idempotence. An isolated Linux container test on 2026-10-28 reproduced the
+Tailscale 1.102.4 SSH helper failure with inherited groups `44,990,1001` and only
+`1001` in the user database; after synchronization the helper started a command
+successfully with all three groups, including on a repeated invocation. This
+checked session startup without changing the running agent or allocating GPUs;
+a deployment still needs full SSH/SFTP and GPU workload verification.

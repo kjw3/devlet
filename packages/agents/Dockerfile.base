@@ -141,11 +141,12 @@ COPY packages/agents/devlet-ssh.sh /usr/local/bin/devlet-ssh
 COPY packages/agents/devlet-context-config.py /usr/local/bin/devlet-context-config
 COPY packages/agents/devlet-coding-init.sh /usr/local/bin/devlet-coding-init
 COPY packages/agents/devlet-tailscale.sh /usr/local/bin/devlet-tailscale
+COPY packages/agents/devlet-sync-groups.py /usr/local/bin/devlet-sync-groups
 COPY packages/agents/devlet-services.sh /usr/local/bin/devlet-services
 COPY packages/agents/devlet-service-runner.py /usr/local/bin/devlet-service-runner
 COPY packages/agents/devlet-systemctl.sh /usr/local/bin/systemctl
 COPY packages/agents/devlet-manifest.sh /usr/local/bin/devlet-manifest
-RUN chmod +x /entrypoint.sh /usr/local/bin/devlet-terminal /usr/local/bin/devlet-ssh /usr/local/bin/devlet-tailscale /usr/local/bin/devlet-coding-init /usr/local/bin/devlet-services /usr/local/bin/devlet-service-runner /usr/local/bin/systemctl /usr/local/bin/devlet-manifest
+RUN chmod +x /entrypoint.sh /usr/local/bin/devlet-terminal /usr/local/bin/devlet-ssh /usr/local/bin/devlet-tailscale /usr/local/bin/devlet-sync-groups /usr/local/bin/devlet-coding-init /usr/local/bin/devlet-services /usr/local/bin/devlet-service-runner /usr/local/bin/systemctl /usr/local/bin/devlet-manifest
 
 # Create non-root agent user — coding agents refuse --dangerously-skip-permissions as root
 RUN useradd --create-home --user-group --shell /bin/bash agent && \
@@ -159,11 +160,12 @@ RUN useradd --create-home --user-group --shell /bin/bash agent && \
 #   pip / pip3 / python3 -m pip — python packages
 #   virtualenv    — create/manage virtualenvs (venv needs python3-venv for ensurepip)
 #   devlet-manifest — the manifest tool itself (so `add` can install on the spot)
+#   devlet-sync-groups — record already-inherited runtime groups for Tailscale SSH
 # Note: the allowlist is deliberately narrow (no shell, no arbitrary commands).
 # A command NOT listed here will prompt for a password (which the agent has none),
 # so if a new package-manager entry point is added, add its path here too.
 RUN printf '%s\n' \
-    'agent ALL=(root) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get, /usr/bin/pip, /usr/bin/pip3, /usr/bin/virtualenv, /usr/local/bin/npm, /usr/local/bin/npx, /usr/bin/python3, /usr/local/bin/python3, /usr/local/bin/devlet-manifest' \
+    'agent ALL=(root) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get, /usr/bin/pip, /usr/bin/pip3, /usr/bin/virtualenv, /usr/local/bin/npm, /usr/local/bin/npx, /usr/bin/python3, /usr/local/bin/python3, /usr/local/bin/devlet-manifest, /usr/local/bin/devlet-sync-groups' \
     > /etc/sudoers.d/devlet && chmod 0440 /etc/sudoers.d/devlet
 
 ENV HOME=/home/agent

@@ -30,10 +30,19 @@ else
     mkdir -p "$_dir/state"
     ts() { tailscale --socket="$_sock" "$@"; }
 
-    tailscaled --tun=userspace-networking --statedir="${_dir}/state" --socket="$_sock" >>"$_log" 2>&1 &
-
     _ssh_flag="--ssh"
     [ "${TS_SSH:-true}" = "false" ] && _ssh_flag="--ssh=false"
+
+    # GPU runtimes may inject supplementary groups missing from /etc/group.
+    # Non-root Tailscale SSH cannot reconcile that mismatch with setgroups(2).
+    # Synchronize only memberships this process already inherited; do not drop
+    # device access or run tailscaled/the agent as root.
+    if [ "$_ssh_flag" = "--ssh" ] && ! sudo -n /usr/local/bin/devlet-sync-groups "$BASHPID"; then
+      echo "[devlet-tailscale] disabling Tailscale SSH after group synchronization failure (networking remains enabled)"
+      _ssh_flag="--ssh=false"
+    fi
+
+    tailscaled --tun=userspace-networking --statedir="${_dir}/state" --socket="$_sock" >>"$_log" 2>&1 &
 
     if ! ts up --authkey="$_dts_authkey" --hostname="$_host" --advertise-tags="$_tags" \
          "$_ssh_flag" --accept-dns=false --timeout=60s >>"$_log" 2>&1; then
