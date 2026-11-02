@@ -40,6 +40,10 @@ COPY --from=uv_source /uv /usr/local/bin/uv
 RUN git clone --depth 1 --branch ${HERMES_REF} https://github.com/NousResearch/hermes-agent /opt/hermes && \
     chown -R agent:agent /opt/hermes
 
+# Apply the validated finalization fix; an unknown upstream source fails the build.
+COPY packages/agents/hermes-finalizer-patch.py /usr/local/lib/hermes-finalizer-patch.py
+RUN python3 /usr/local/lib/hermes-finalizer-patch.py /opt/hermes
+
 # Create hermes data/config dir
 RUN mkdir -p /home/agent/.hermes && chown -R agent:agent /home/agent/.hermes
 
@@ -78,6 +82,8 @@ LABEL org.opencontainers.image.revision="${VCS_REF}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
 LABEL org.opencontainers.image.version="${VERSION}"
 LABEL devlet.agent.type="hermes"
+LABEL io.kdjlab.hermes.finalizer.patch="20261102"
+LABEL io.kdjlab.hermes.finalizer.sha256="b3adbc1e6ac76f47611e10468377e41b09dbfa95ee4a221ff60c50321459d0f0"
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD []

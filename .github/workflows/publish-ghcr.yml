@@ -125,6 +125,7 @@ jobs:
               - 'packages/agents/devlet-*.sh'
               - 'packages/agents/devlet-*.py'
               - 'packages/agents/Dockerfile.hermes'
+              - 'packages/agents/hermes-finalizer-patch.py'
               - 'packages/agents/entrypoint.hermes.sh'
               - 'packages/server/src/platforms/env.ts'
               - 'packages/shared/**'
